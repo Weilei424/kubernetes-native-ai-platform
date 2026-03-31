@@ -1,0 +1,165 @@
+# ============================================================
+# Go (control-plane, cli, operator)
+# ============================================================
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/control-plane/bin/
+/cli/bin/
+/operator/bin/
+vendor/
+
+# ============================================================
+# Python (sdk/python, training-runtime, examples)
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+pip-wheel-metadata/
+*.whl
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ============================================================
+# Secrets and credentials — never commit these
+# ============================================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+vault-token
+vault-root-token
+*.credentials
+secrets/
+**/secrets/
+kubeconfig
+*.kubeconfig
+
+# ============================================================
+# Terraform (infra/terraform)
+# ============================================================
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+*.tfvars
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+crash.log
+crash.*.log
+
+# ============================================================
+# Helm (infra/helm)
+# ============================================================
+charts/*.tgz
+/infra/helm/**/charts/
+/infra/helm/**/Chart.lock
+
+# ============================================================
+# Kubernetes manifests — generated/rendered only
+# ============================================================
+/infra/kubernetes/rendered/
+
+# ============================================================
+# MLflow (local artifact store, tracking)
+# ============================================================
+mlruns/
+mlartifacts/
+mlflow.db
+
+# ============================================================
+# MinIO (local object storage data)
+# ============================================================
+.minio/
+minio-data/
+
+# ============================================================
+# PostgreSQL (local data directory)
+# ============================================================
+pgdata/
+postgres-data/
+
+# ============================================================
+# Kafka (local broker data)
+# ============================================================
+kafka-data/
+zookeeper-data/
+
+# ============================================================
+# Ray (runtime artifacts and logs)
+# ============================================================
+/tmp/ray/
+ray_results/
+ray-project/
+
+# ============================================================
+# Triton (local model repository)
+# ============================================================
+/serving/model-repository/
+*.onnx
+*.plan
+*.trt
+
+# ============================================================
+# Docker / container builds
+# ============================================================
+.dockerignore.local
+
+# ============================================================
+# Local dev tooling and IDE
+# ============================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ============================================================
+# Local infrastructure state (kind/k3d)
+# ============================================================
+.kind/
+kubeconfig.local
+
+# ============================================================
+# Test output and coverage
+# ============================================================
+coverage.out
+coverage.html
+test-results/
+*.log
+
+# ============================================================
+# Build artifacts
+# ============================================================
+dist/
+bin/
+*.tar.gz
+*.zip
