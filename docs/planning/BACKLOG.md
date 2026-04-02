@@ -11,6 +11,7 @@
 
 - [ ] Repo bootstrap (directory layout per PROJECT_INSTRUCTION.md §15)
 - [ ] Local infrastructure stack (kind/k3d, PostgreSQL, Kafka, MinIO, MLflow)
+- [ ] Helm chart or Docker Compose for local dependency management (`make local-up` / `make local-down`)
 - [ ] Control plane skeleton (Go module, cmd entrypoint, router, middleware)
 - [ ] Health and readiness endpoints (`GET /healthz`, `GET /readyz`)
 - [ ] Auth skeleton (token-based, middleware, token validation)
