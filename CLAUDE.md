@@ -7,6 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Claude** (claude.ai/code) — primary implementor. All code authoring, planning, and execution happens here.
 - **Codex** — code reviewer. After implementation milestones, Codex reviews the work for correctness, quality, and adherence to the plan.
 
+## Working Rules
+
+- Whenever a plan is generated or changed, also update the checklist in `docs/planning/BACKLOG.md`.
+- Whenever a checklist item from `docs/planning/BACKLOG.md` is done or changed, update its contents or status rightaway.
+
 ## Project Overview
 
 This is a **Kubernetes-native AI/ML platform** built as a portfolio project signaling both AI Infrastructure and ML Platform engineering skills. The sacred end-to-end workflow is:
