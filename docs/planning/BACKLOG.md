@@ -9,13 +9,15 @@
 
 ### Phase 0 Execution Checklist — Foundation
 
-- [ ] Repo bootstrap (directory layout per PROJECT_INSTRUCTION.md §15)
-- [ ] Local infrastructure stack (kind/k3d, PostgreSQL, Kafka, MinIO, MLflow)
-- [ ] Helm chart or Docker Compose for local dependency management (`make local-up` / `make local-down`)
-- [ ] Control plane skeleton (Go module, cmd entrypoint, router, middleware)
-- [ ] Health and readiness endpoints (`GET /healthz`, `GET /readyz`)
-- [ ] Auth skeleton (token-based, middleware, token validation)
-- [ ] Base DB schema migrations (tenants, projects, platform_events tables)
+- [x] Repo bootstrap (directory layout per PROJECT_INSTRUCTION.md §15)
+- [x] Local infrastructure stack (kind/k3d, PostgreSQL, Kafka, MinIO, MLflow)
+- [x] Helm chart or Docker Compose for local dependency management (`make local-up` / `make local-down`)
+- [x] Control plane skeleton (Go module, cmd entrypoint, router, middleware)
+- [x] Health and readiness endpoints (`GET /healthz`, `GET /readyz`)
+- [x] Auth skeleton (token-based, middleware, token validation)
+- [x] Base DB schema migrations (tenants, projects, api_tokens, platform_events tables)
+- [x] **[Task 17 — manual]** Live-stack verification: port-forward postgres, run server, curl /healthz /readyz, verify 401, verify DB tables, verify bcrypt token auth
+- [ ] **[Phase 1 prerequisite]** Token lookup optimization: add `token_prefix TEXT` index column to api_tokens so FindToken does a keyed lookup instead of full-table bcrypt scan (current v1 design is acceptable for near-zero rows)
 
 ---
 
