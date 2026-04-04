@@ -40,6 +40,6 @@ local-status:
 	@echo "==> Endpoints:"
 	@echo "  MLflow UI:    http://localhost:5000 (via kind NodePort)"
 	@echo "  PostgreSQL:   kubectl port-forward svc/postgres -n $(NAMESPACE) 5432:5432"
-	@echo "                DSN: postgres://aiplatform:aiplatform@localhost:5432/aiplatform"
+	@echo "                DSN: postgres://aiplatform:aiplatform@localhost:5432/aiplatform?sslmode=disable"
 	@echo "  MinIO API:    kubectl port-forward svc/minio -n $(NAMESPACE) 9000:9000"
 	@echo "  Kafka:        kubectl port-forward svc/kafka -n $(NAMESPACE) 9092:9092"
