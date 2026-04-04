@@ -12,6 +12,7 @@
 /cli/bin/
 /operator/bin/
 vendor/
+/control-plane/server
 
 # ============================================================
 # Python (sdk/python, training-runtime, examples)
