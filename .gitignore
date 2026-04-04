@@ -142,6 +142,7 @@ ray-project/
 *~
 .DS_Store
 Thumbs.db
+tmp/
 
 # ============================================================
 # Local infrastructure state (kind/k3d)
