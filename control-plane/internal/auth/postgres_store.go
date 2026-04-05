@@ -20,11 +20,20 @@ func NewPostgresTokenStore(db *pgxpool.Pool) *PostgresTokenStore {
 	return &PostgresTokenStore{db: db}
 }
 
-// FindToken scans api_tokens for a row whose token_hash matches the plaintext
-// via bcrypt. Returns the tenant_id of the first matching, non-expired token.
+// FindToken looks up a token by its prefix (first 8 chars of plaintext), then
+// bcrypt-compares only the matching candidate rows. Returns the tenant_id on match.
 func (s *PostgresTokenStore) FindToken(ctx context.Context, plaintext string) (string, error) {
+	if len(plaintext) < 8 {
+		return "", fmt.Errorf("token too short")
+	}
+	prefix := plaintext[:8]
+
 	rows, err := s.db.Query(ctx,
-		`SELECT tenant_id::text, token_hash, expires_at FROM api_tokens`)
+		`SELECT tenant_id::text, token_hash, expires_at
+		 FROM api_tokens
+		 WHERE token_prefix = $1`,
+		prefix,
+	)
 	if err != nil {
 		return "", fmt.Errorf("query api_tokens: %w", err)
 	}
