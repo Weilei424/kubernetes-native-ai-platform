@@ -3,6 +3,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -25,6 +26,17 @@ func (h *jobsHandler) handleSubmitJob(w http.ResponseWriter, r *http.Request) {
 	var req jobs.JobSubmitRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+
+	// Verify the project exists and belongs to this tenant before anything else.
+	if err := h.store.ProjectBelongsToTenant(r.Context(), req.ProjectID, tenantID); err != nil {
+		if errors.Is(err, jobs.ErrProjectNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
+			return
+		}
+		slog.Error("check project ownership", "project_id", req.ProjectID, "tenant_id", tenantID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
 
