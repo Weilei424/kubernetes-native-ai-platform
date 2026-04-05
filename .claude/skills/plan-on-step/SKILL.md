@@ -107,6 +107,7 @@ Update `BACKLOG.md` at its resolved path as part of the planning workflow.
 
 - For numbered phases use `### Phase N Execution Checklist` format.
 - For other targets add or update the closest equivalent checklist without disrupting existing phase sections.
+- **Update means refine the checklist items** — expand vague items into the concrete tasks the design produced. All items remain `[ ]` (not started). Do **not** mark any items `[x]` here; that happens during execution as tasks are completed.
 
 Update `IMPLEMENTATION_PLAN.md` and `ARCHITECTURE_NOTES.md` only when planning materially changes the phase map, architecture defaults, or system responsibilities. Do not churn those docs for local target-level details.
 
