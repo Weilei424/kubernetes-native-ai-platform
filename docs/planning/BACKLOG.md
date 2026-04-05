@@ -55,14 +55,20 @@
 
 ### Phase 2 Execution Checklist — ML Platform Layer
 
-- [ ] MLflow run linkage (associate training_run with MLflow run ID)
-- [ ] Model registration API (`POST /models`, `GET /models/:name`)
-- [ ] Model version metadata persistence (model_records, model_versions tables)
-- [ ] Promotion workflow (`POST /models/:name/versions/:version/promote`)
-- [ ] Alias-based model resolution (`GET /models/:name/alias/:alias`)
-- [ ] Model version → source run traceability
-- [ ] Unit tests: promotion rules, alias resolution
-- [ ] Integration tests: registration flow, promotion flow
+- [ ] Migration 009: model_records table (tenant/project scoped, unique on tenant_id+name)
+- [ ] Migration 010: model_versions table (FK to model_records + training_runs, status field)
+- [ ] Extend StatusUpdateRequest with optional `mlflow_run_id` field
+- [ ] Add `SetMLflowRunID` + `GetRunForRegistration` to jobs.Store interface + PostgresJobStore
+- [ ] Internal status handler: persist mlflow_run_id when present in PATCH body
+- [ ] MLflow client package (`internal/mlflow/client.go`): CreateRegisteredModel, CreateModelVersion, SetModelAlias, DeleteModelAlias, GetModelVersionByAlias
+- [ ] Models domain types (`internal/models/model.go`): ModelRecord, ModelVersion, RegisterRequest, PromoteRequest, error sentinels
+- [ ] Models store (`internal/models/store.go`): CreateOrGetModelRecord, CreateModelVersion, GetModelRecordByName, ListModelVersions, GetModelVersionByNumber, UpdateModelVersionStatus
+- [ ] Models service (`internal/models/service.go`): Register, GetModel, GetModelVersion, Promote (flexible + archived terminal), ResolveAlias
+- [ ] Models API handlers (`internal/api/models.go`): POST /v1/models, GET /v1/models/:name, GET /v1/models/:name/versions/:version, POST /v1/models/:name/versions/:version/promote, GET /v1/models/:name/alias/:alias
+- [ ] Router: register model routes; export ModelsService interface
+- [ ] main.go: wire MLflow client + models service
+- [ ] Unit tests: MLflow client (httptest mock server), service (promotion rules, alias resolution, run validation)
+- [ ] Integration tests: store (real PG), handler tests (mock service), full-stack tests (real service + real PG + mock MLflow)
 
 ---
 
