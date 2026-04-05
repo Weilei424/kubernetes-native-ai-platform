@@ -23,33 +23,33 @@
 
 ### Phase 1 Execution Checklist — Training Control Plane
 
-- [ ] Migration 005: token_prefix column + index on api_tokens; update FindToken to keyed lookup
-- [ ] Migration 006: cpu_quota + memory_quota columns on tenants
-- [ ] Migration 007: training_jobs table
-- [ ] Migration 008: training_runs table
-- [ ] Scheduler: admission validation (`internal/scheduler/admission.go`)
-- [ ] Scheduler: quota enforcement in Go with resource quantity parsing (`internal/scheduler/quota.go`)
-- [ ] Scheduler: per-tenant fair scheduling and placement hint generation (`internal/scheduler/placement.go`)
-- [ ] Job state machine with transition validation (`internal/jobs/statemachine.go`)
-- [ ] Training jobs + runs DB store (`internal/jobs/store.go`)
-- [ ] RayJob CRD builder (`internal/jobs/rayjob.go`)
-- [ ] Kubernetes client auto-detect (`internal/k8s/client.go`)
-- [ ] Kafka producer for state transition events (`internal/events/kafka.go`)
+- [x] Migration 005: token_prefix column + index on api_tokens; update FindToken to keyed lookup
+- [x] Migration 006: cpu_quota + memory_quota columns on tenants
+- [x] Migration 007: training_jobs table
+- [x] Migration 008: training_runs table
+- [x] Scheduler: admission validation (`internal/scheduler/admission.go`)
+- [x] Scheduler: quota enforcement in Go with resource quantity parsing (`internal/scheduler/quota.go`)
+- [x] Scheduler: per-tenant fair scheduling and placement hint generation (`internal/scheduler/placement.go`)
+- [x] Job state machine with transition validation (`internal/jobs/statemachine.go`)
+- [x] Training jobs + runs DB store (`internal/jobs/store.go`)
+- [x] RayJob CRD builder (`internal/jobs/rayjob.go`)
+- [x] Kubernetes client auto-detect (`internal/k8s/client.go`)
+- [x] Kafka producer for state transition events (`internal/events/kafka.go`)
 - [x] Dispatcher goroutine: per-tenant fair promotion (oldest PENDING per tenant per tick), CRD submission, retry on rayjob_name IS NULL (`internal/jobs/dispatcher.go`)
-- [ ] Jobs API handlers: POST /v1/jobs, GET /v1/jobs, GET /v1/jobs/:id, GET /v1/jobs/:id/runs/:run_id (`internal/api/jobs.go`)
-- [ ] Internal status API handler: PATCH /internal/v1/jobs/:id/status (`internal/api/internal.go`)
-- [ ] Router: register job routes + internal router on separate port (`internal/api/router.go`)
-- [ ] main.go: start dispatcher goroutine + internal HTTP server
-- [ ] Operator binary entrypoint (`operator/cmd/operator/main.go`)
-- [ ] RayJob reconciler: watch, status map, call internal API (`operator/internal/reconciler/rayjob_reconciler.go`)
-- [ ] Unit tests: scheduler admission, quota, per-tenant fair scheduling, placement hints
-- [ ] Unit tests: state machine transitions
-- [ ] Unit tests: RayJob CRD builder
-- [ ] Unit tests: operator reconciler status mapping
-- [ ] Integration tests: POST /v1/jobs happy path and failure cases
-- [ ] Integration tests: PATCH /internal/v1/jobs/:id/status transitions
-- [ ] Integration tests: dispatcher cycle with fake K8s client
-- [ ] Integration tests: token prefix lookup
+- [x] Jobs API handlers: POST /v1/jobs, GET /v1/jobs, GET /v1/jobs/:id, GET /v1/jobs/:id/runs/:run_id (`internal/api/jobs.go`)
+- [x] Internal status API handler: PATCH /internal/v1/jobs/:id/status (`internal/api/internal.go`)
+- [x] Router: register job routes + internal router on separate port (`internal/api/router.go`)
+- [x] main.go: start dispatcher goroutine + internal HTTP server
+- [x] Operator binary entrypoint (`operator/cmd/operator/main.go`)
+- [x] RayJob reconciler: watch, status map, call internal API (`operator/internal/reconciler/rayjob_reconciler.go`)
+- [x] Unit tests: scheduler admission, quota, per-tenant fair scheduling, placement hints
+- [x] Unit tests: state machine transitions
+- [x] Unit tests: RayJob CRD builder
+- [x] Unit tests: operator reconciler status mapping
+- [x] Integration tests: POST /v1/jobs happy path and failure cases
+- [x] Integration tests: PATCH /internal/v1/jobs/:id/status transitions
+- [x] Integration tests: dispatcher cycle with fake K8s client
+- [x] Integration tests: token prefix lookup
 
 ---
 
