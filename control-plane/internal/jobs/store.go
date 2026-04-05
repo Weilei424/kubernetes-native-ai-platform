@@ -4,11 +4,15 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// ErrProjectNotFound is returned when a project does not exist or does not belong to the tenant.
+var ErrProjectNotFound = errors.New("project not found")
 
 // Store is the interface used by handlers and the dispatcher.
 type Store interface {
@@ -29,6 +33,9 @@ type Store interface {
 	SetRayJobName(ctx context.Context, id, rayJobName string) error
 	TransitionJobStatus(ctx context.Context, id, from, to string, failureReason *string) error
 	GetTenantQuota(ctx context.Context, tenantID string) (cpuMillicores, memoryBytes int64, err error)
+	// ProjectBelongsToTenant returns nil if project exists and is owned by tenantID,
+	// or an error (ErrProjectNotFound) if it does not.
+	ProjectBelongsToTenant(ctx context.Context, projectID, tenantID string) error
 }
 
 // PostgresJobStore implements Store against PostgreSQL.
@@ -323,6 +330,21 @@ func (s *PostgresJobStore) GetTenantQuota(ctx context.Context, tenantID string) 
 		tenantID,
 	).Scan(&cpuMillicores, &memoryBytes)
 	return
+}
+
+func (s *PostgresJobStore) ProjectBelongsToTenant(ctx context.Context, projectID, tenantID string) error {
+	var exists bool
+	err := s.db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1 AND tenant_id = $2)`,
+		projectID, tenantID,
+	).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("check project ownership: %w", err)
+	}
+	if !exists {
+		return ErrProjectNotFound
+	}
+	return nil
 }
 
 type scannable interface {
