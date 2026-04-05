@@ -61,6 +61,39 @@ func TestInternalStatus_QueuedToRunning(t *testing.T) {
 	}
 }
 
+func TestInternalStatus_QueuedToFailed(t *testing.T) {
+	handler, store, tenantID, projectID := setupInternalTest(t)
+	ctx := context.Background()
+
+	job := &jobs.TrainingJob{
+		TenantID: tenantID, ProjectID: projectID, Name: "queued-fail-job",
+		Status: "PENDING", Image: "img:1", Command: []string{"run"},
+		Args: []string{}, Env: map[string]string{},
+		NumWorkers: 1, WorkerCPU: "1", WorkerMemory: "1Gi",
+		HeadCPU: "1", HeadMemory: "1Gi",
+	}
+	run := &jobs.TrainingRun{TenantID: tenantID, Status: "PENDING"}
+	store.CreateJobWithRun(ctx, job, run)
+	store.TransitionJobStatus(ctx, job.ID, "PENDING", "QUEUED", nil)
+
+	reason := "image pull failed"
+	body := map[string]interface{}{"status": "FAILED", "failure_reason": reason}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPatch, "/internal/v1/jobs/"+job.ID+"/status", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for QUEUED→FAILED, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	got, _ := store.GetJob(ctx, job.ID, tenantID)
+	if got.Status != "FAILED" {
+		t.Fatalf("expected FAILED, got %q", got.Status)
+	}
+}
+
 func TestInternalStatus_InvalidTransition(t *testing.T) {
 	handler, store, tenantID, projectID := setupInternalTest(t)
 	ctx := context.Background()
