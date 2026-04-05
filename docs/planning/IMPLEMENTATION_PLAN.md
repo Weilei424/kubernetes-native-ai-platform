@@ -101,6 +101,7 @@ Development follows a CPU-first local approach before cloud and GPU enhancements
 **Goal:** Add production-grade observability, retry logic, failure handling, and event/log visibility.
 
 **Deliverables:**
+- Operator hardening: leader election, webhook validation for RayJob specs, full informer cache replacing the basic watch loop, retry backoff tuning, multi-namespace support
 - Prometheus metrics: API latency, queue depth, job admission failures, reconciliation duration, deployment counts
 - Training metrics: run duration, worker count, retry/failure count, success rate
 - Serving metrics: request rate, p50/p95/p99 latency, error rate, replica count, model load success/failure
