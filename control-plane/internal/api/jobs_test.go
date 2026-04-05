@@ -159,6 +159,65 @@ func TestSubmitJob_QuotaExceeded(t *testing.T) {
 	}
 }
 
+func TestSubmitJob_CrossTenantProject(t *testing.T) {
+	env := setupAPITest(t)
+	ctx := context.Background()
+
+	// Create a second tenant with its own project.
+	var otherTenantID, otherProjectID string
+	env.pool.QueryRow(ctx, `INSERT INTO tenants (name) VALUES ('other-tenant') RETURNING id::text`).Scan(&otherTenantID)
+	env.pool.QueryRow(ctx, `INSERT INTO projects (tenant_id, name) VALUES ($1, 'other-proj') RETURNING id::text`, otherTenantID).Scan(&otherProjectID)
+
+	// Authenticated as env.tenantID but referencing a project owned by otherTenantID.
+	body := map[string]interface{}{
+		"name":       "cross-tenant-job",
+		"project_id": otherProjectID,
+		"runtime": map[string]interface{}{
+			"image": "img:1", "command": []string{"run"}, "args": []string{}, "env": map[string]string{},
+		},
+		"resources": map[string]interface{}{
+			"num_workers": 1, "worker_cpu": "1", "worker_memory": "1Gi",
+			"head_cpu": "1", "head_memory": "1Gi",
+		},
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/v1/jobs", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+env.token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	env.handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for cross-tenant project, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSubmitJob_MissingProject(t *testing.T) {
+	env := setupAPITest(t)
+
+	body := map[string]interface{}{
+		"name":       "missing-proj-job",
+		"project_id": "00000000-0000-0000-0000-000000000000",
+		"runtime": map[string]interface{}{
+			"image": "img:1", "command": []string{"run"}, "args": []string{}, "env": map[string]string{},
+		},
+		"resources": map[string]interface{}{
+			"num_workers": 1, "worker_cpu": "1", "worker_memory": "1Gi",
+			"head_cpu": "1", "head_memory": "1Gi",
+		},
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/v1/jobs", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+env.token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	env.handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing project, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestListJobs(t *testing.T) {
 	env := setupAPITest(t)
 
