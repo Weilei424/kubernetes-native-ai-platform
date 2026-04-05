@@ -29,20 +29,20 @@
 - [ ] Migration 008: training_runs table
 - [ ] Scheduler: admission validation (`internal/scheduler/admission.go`)
 - [ ] Scheduler: quota enforcement in Go with resource quantity parsing (`internal/scheduler/quota.go`)
-- [ ] Scheduler: FIFO ordering and placement hint generation (`internal/scheduler/placement.go`)
+- [ ] Scheduler: per-tenant fair scheduling and placement hint generation (`internal/scheduler/placement.go`)
 - [ ] Job state machine with transition validation (`internal/jobs/statemachine.go`)
 - [ ] Training jobs + runs DB store (`internal/jobs/store.go`)
 - [ ] RayJob CRD builder (`internal/jobs/rayjob.go`)
 - [ ] Kubernetes client auto-detect (`internal/k8s/client.go`)
 - [ ] Kafka producer for state transition events (`internal/events/kafka.go`)
-- [x] Dispatcher goroutine: FIFO promotion, CRD submission, retry on rayjob_name IS NULL (`internal/jobs/dispatcher.go`)
+- [x] Dispatcher goroutine: per-tenant fair promotion (oldest PENDING per tenant per tick), CRD submission, retry on rayjob_name IS NULL (`internal/jobs/dispatcher.go`)
 - [ ] Jobs API handlers: POST /v1/jobs, GET /v1/jobs, GET /v1/jobs/:id, GET /v1/jobs/:id/runs/:run_id (`internal/api/jobs.go`)
 - [ ] Internal status API handler: PATCH /internal/v1/jobs/:id/status (`internal/api/internal.go`)
 - [ ] Router: register job routes + internal router on separate port (`internal/api/router.go`)
 - [ ] main.go: start dispatcher goroutine + internal HTTP server
 - [ ] Operator binary entrypoint (`operator/cmd/operator/main.go`)
 - [ ] RayJob reconciler: watch, status map, call internal API (`operator/internal/reconciler/rayjob_reconciler.go`)
-- [ ] Unit tests: scheduler admission, quota, FIFO, placement hints
+- [ ] Unit tests: scheduler admission, quota, per-tenant fair scheduling, placement hints
 - [ ] Unit tests: state machine transitions
 - [ ] Unit tests: RayJob CRD builder
 - [ ] Unit tests: operator reconciler status mapping

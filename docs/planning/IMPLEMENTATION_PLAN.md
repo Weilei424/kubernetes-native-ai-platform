@@ -40,7 +40,7 @@ Development follows a CPU-first local approach before cloud and GPU enhancements
 - Training job submission API (`POST /v1/jobs`)
 - Training job and run metadata tables in PostgreSQL
 - Job state machine: PENDING → QUEUED → RUNNING → SUCCEEDED / FAILED / CANCELLED
-- Scheduler: admission control, quota enforcement, FIFO ordering, placement hint generation
+- Scheduler: admission control, quota enforcement, per-tenant fair scheduling (promotes oldest PENDING job per tenant per tick), placement hint generation
 - RayJob CRD creation via Kubernetes API
 - Reconciliation loop: syncs RayJob status back to training_run records
 - Unit tests for validation, state transitions, scheduler logic

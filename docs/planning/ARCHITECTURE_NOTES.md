@@ -31,7 +31,9 @@ MLflow is the model lifecycle system. It owns run tracking and the model registr
 Triton Inference Server provides the production serving credibility. A Flask wrapper around a model is not acceptable for this platform's goals.
 
 ### Scheduler is not a full kube-scheduler plugin
-The v1 scheduler handles admission, quota, FIFO ordering, and placement hint generation. Kubernetes performs the actual pod-to-node scheduling. Do not build a full scheduler plugin until the core platform is working.
+The v1 scheduler handles admission, quota, per-tenant fair scheduling, and placement hint generation. Kubernetes performs the actual pod-to-node scheduling. Do not build a full scheduler plugin until the core platform is working.
+
+Per-tenant fair scheduling: the dispatcher promotes the oldest PENDING job per tenant per tick. Tenant ordering within a tick is non-deterministic; this is intentional — fairness across tenants is preferred over strict global FIFO.
 
 ### Auth is token-based in v1
 Simple token-based auth is sufficient. Do not overbuild auth before the core lifecycle is working.
