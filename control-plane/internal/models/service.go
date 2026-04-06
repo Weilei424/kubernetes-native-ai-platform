@@ -3,8 +3,10 @@ package models
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/jobs"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/mlflow"
 )
 
@@ -26,6 +28,11 @@ func NewService(store Store, runReader RunReader, mlflowClient mlflow.Client) *S
 	return &Service{store: store, runReader: runReader, mlflowClient: mlflowClient}
 }
 
+// validPromoteAliases is the set of aliases accepted by Promote.
+var validPromoteAliases = map[string]bool{
+	"staging": true, "production": true, "archived": true,
+}
+
 // Register validates the source run and creates a model version in MLflow and PostgreSQL.
 func (s *Service) Register(ctx context.Context, tenantID string, req RegisterRequest) (*ModelVersion, error) {
 	if req.RunID == "" || req.ModelName == "" {
@@ -37,8 +44,11 @@ func (s *Service) Register(ctx context.Context, tenantID string, req RegisterReq
 	}
 
 	projectID, status, mlflowRunID, err := s.runReader.GetRunForRegistration(ctx, req.RunID, tenantID)
-	if err != nil {
+	if errors.Is(err, jobs.ErrRunNotFound) {
 		return nil, ErrRunNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("look up training run: %w", err)
 	}
 	if status != "SUCCEEDED" {
 		return nil, ErrRunNotSucceeded
@@ -66,6 +76,8 @@ func (s *Service) Register(ctx context.Context, tenantID string, req RegisterReq
 		MLflowRegisteredModelName: mlflowModelName,
 	}
 	if err := s.store.CreateOrGetModelRecord(ctx, rec); err != nil {
+		// Best-effort cleanup: delete the MLflow version we just created.
+		_ = s.mlflowClient.DeleteModelVersion(ctx, mlflowModelName, versionNum)
 		return nil, fmt.Errorf("persist model record: %w", err)
 	}
 
@@ -79,6 +91,8 @@ func (s *Service) Register(ctx context.Context, tenantID string, req RegisterReq
 		Status:        "candidate",
 	}
 	if err := s.store.CreateModelVersion(ctx, ver); err != nil {
+		// Best-effort cleanup: delete the MLflow version we just created.
+		_ = s.mlflowClient.DeleteModelVersion(ctx, mlflowModelName, versionNum)
 		return nil, fmt.Errorf("persist model version: %w", err)
 	}
 
@@ -112,15 +126,20 @@ func (s *Service) GetModelVersion(ctx context.Context, name string, versionNumbe
 }
 
 // Promote assigns an alias to a model version. "archived" removes all common aliases
-// and sets the version to a terminal state.
+// and sets the version to a terminal state. staging/production atomically clear any
+// prior holder of that alias in PostgreSQL to maintain single-holder consistency.
 func (s *Service) Promote(ctx context.Context, name string, versionNumber int, alias, tenantID string) error {
+	if !validPromoteAliases[alias] {
+		return fmt.Errorf("invalid alias %q: must be staging, production, or archived", alias)
+	}
+
 	rec, err := s.store.GetModelRecordByName(ctx, name, tenantID)
 	if err != nil {
-		return ErrModelNotFound
+		return err // store maps not-found to ErrModelNotFound
 	}
 	ver, err := s.store.GetModelVersionByNumber(ctx, rec.ID, versionNumber)
 	if err != nil {
-		return ErrVersionNotFound
+		return err // store maps not-found to ErrVersionNotFound
 	}
 	if ver.Status == "archived" {
 		return ErrVersionArchived
@@ -130,13 +149,14 @@ func (s *Service) Promote(ctx context.Context, name string, versionNumber int, a
 		// Best-effort removal of common aliases from MLflow.
 		_ = s.mlflowClient.DeleteModelAlias(ctx, rec.MLflowRegisteredModelName, "staging")
 		_ = s.mlflowClient.DeleteModelAlias(ctx, rec.MLflowRegisteredModelName, "production")
-	} else {
-		if err := s.mlflowClient.SetModelAlias(ctx, rec.MLflowRegisteredModelName, alias, versionNumber); err != nil {
-			return fmt.Errorf("set mlflow alias: %w", err)
-		}
+		return s.store.UpdateModelVersionStatus(ctx, ver.ID, "archived")
 	}
 
-	return s.store.UpdateModelVersionStatus(ctx, ver.ID, alias)
+	if err := s.mlflowClient.SetModelAlias(ctx, rec.MLflowRegisteredModelName, alias, versionNumber); err != nil {
+		return fmt.Errorf("set mlflow alias: %w", err)
+	}
+	// Atomically clear prior holders of this alias and set the new holder.
+	return s.store.PromoteModelVersionStatus(ctx, rec.ID, ver.ID, alias)
 }
 
 // ResolveAlias resolves an MLflow alias to the full version record.
@@ -144,15 +164,18 @@ func (s *Service) Promote(ctx context.Context, name string, versionNumber int, a
 func (s *Service) ResolveAlias(ctx context.Context, name, alias, tenantID string) (*ModelVersion, error) {
 	rec, err := s.store.GetModelRecordByName(ctx, name, tenantID)
 	if err != nil {
-		return nil, ErrModelNotFound
+		return nil, err // store maps not-found to ErrModelNotFound
 	}
 	versionNum, err := s.mlflowClient.GetModelVersionByAlias(ctx, rec.MLflowRegisteredModelName, alias)
 	if err != nil {
-		return nil, ErrAliasNotFound
+		if mlflow.IsNotFound(err) {
+			return nil, ErrAliasNotFound
+		}
+		return nil, fmt.Errorf("get mlflow alias: %w", err)
 	}
 	ver, err := s.store.GetModelVersionByNumber(ctx, rec.ID, versionNum)
 	if err != nil {
-		return nil, ErrVersionNotFound
+		return nil, err // store maps not-found to ErrVersionNotFound
 	}
 	return ver, nil
 }
