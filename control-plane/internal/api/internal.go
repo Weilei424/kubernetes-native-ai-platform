@@ -49,6 +49,12 @@ func (h *internalHandler) handleUpdateJobStatus(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	if req.MLflowRunID != nil {
+		if err := h.store.SetMLflowRunID(r.Context(), jobID, *req.MLflowRunID); err != nil {
+			slog.Warn("internal: set mlflow run id", "job_id", jobID, "error", err)
+		}
+	}
+
 	topic := statusToTopic(req.Status)
 	evt := jobs.JobEvent{
 		JobID:         jobID,
