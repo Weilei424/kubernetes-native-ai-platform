@@ -217,6 +217,23 @@ func TestModelsAPI_Promote_HappyPath(t *testing.T) {
 	}
 }
 
+func TestModelsAPI_Promote_InvalidAlias(t *testing.T) {
+	svc := &mockModelsService{promoteErr: models.ErrInvalidAlias}
+	handler, token := setupModelsAPITest(t, svc)
+
+	body := map[string]string{"alias": "experimental"}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/v1/models/resnet50/versions/1/promote", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestModelsAPI_Promote_ArchivedRejected(t *testing.T) {
 	svc := &mockModelsService{promoteErr: models.ErrVersionArchived}
 	handler, token := setupModelsAPITest(t, svc)
@@ -323,7 +340,12 @@ type mockMLflowForIntegration struct {
 	versionNum int
 }
 
-func (m *mockMLflowForIntegration) CreateRegisteredModel(ctx context.Context, name string) error { return nil }
+func (m *mockMLflowForIntegration) CreateRegisteredModel(ctx context.Context, name string) (bool, error) {
+	return true, nil
+}
+func (m *mockMLflowForIntegration) DeleteRegisteredModel(ctx context.Context, name string) error {
+	return nil
+}
 func (m *mockMLflowForIntegration) DeleteModelVersion(ctx context.Context, modelName string, version int) error {
 	return nil
 }
