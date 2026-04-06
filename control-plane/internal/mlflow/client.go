@@ -22,6 +22,9 @@ type Client interface {
 	// CreateModelVersion creates a new version from the given artifact source.
 	// Returns the version number and the artifact URI echoed by MLflow.
 	CreateModelVersion(ctx context.Context, modelName, sourceURI, runID string) (versionNumber int, artifactURI string, err error)
+	// DeleteModelVersion deletes a model version. Used for best-effort cleanup when PostgreSQL
+	// persistence fails after MLflow version creation.
+	DeleteModelVersion(ctx context.Context, modelName string, version int) error
 	// SetModelAlias sets an alias on a specific version (MLflow v2 alias API).
 	SetModelAlias(ctx context.Context, modelName, alias string, version int) error
 	// DeleteModelAlias removes an alias. Missing aliases are silently ignored.
@@ -113,6 +116,10 @@ func IsNotFound(err error) bool {
 	return false
 }
 
+// ErrNotFound is a sentinel MLflow not-found error, used in tests and by callers
+// that need to produce an error that satisfies IsNotFound.
+var ErrNotFound = &mlflowError{ErrorCode: "RESOURCE_DOES_NOT_EXIST", Message: "not found"}
+
 func (c *HTTPClient) CreateRegisteredModel(ctx context.Context, name string) error {
 	body := map[string]string{"name": name}
 	err := c.doJSON(ctx, http.MethodPost, "/api/2.0/mlflow/registered-models/create", body, nil)
@@ -142,6 +149,14 @@ func (c *HTTPClient) CreateModelVersion(ctx context.Context, modelName, sourceUR
 		return 0, "", fmt.Errorf("parse version number %q: %w", resp.ModelVersion.Version, err)
 	}
 	return vNum, resp.ModelVersion.Source, nil
+}
+
+func (c *HTTPClient) DeleteModelVersion(ctx context.Context, modelName string, version int) error {
+	reqBody := map[string]string{
+		"name":    modelName,
+		"version": strconv.Itoa(version),
+	}
+	return c.doJSON(ctx, http.MethodDelete, "/api/2.0/mlflow/model-versions/delete", reqBody, nil)
 }
 
 func (c *HTTPClient) SetModelAlias(ctx context.Context, modelName, alias string, version int) error {
