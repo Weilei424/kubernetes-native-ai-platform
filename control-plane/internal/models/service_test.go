@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/jobs"
+	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/mlflow"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/models"
 )
 
@@ -16,6 +18,8 @@ type mockMLflowClient struct {
 	createVersionNum         int
 	createVersionArtifactURI string
 	createVersionErr         error
+	deleteVersionErr         error
+	deleteVersionCalled      bool
 	setAliasErr              error
 	deleteAliasErr           error
 	getVersionByAliasNum     int
@@ -28,6 +32,10 @@ func (m *mockMLflowClient) CreateRegisteredModel(ctx context.Context, name strin
 }
 func (m *mockMLflowClient) CreateModelVersion(ctx context.Context, modelName, sourceURI, runID string) (int, string, error) {
 	return m.createVersionNum, m.createVersionArtifactURI, m.createVersionErr
+}
+func (m *mockMLflowClient) DeleteModelVersion(ctx context.Context, modelName string, version int) error {
+	m.deleteVersionCalled = true
+	return m.deleteVersionErr
 }
 func (m *mockMLflowClient) SetModelAlias(ctx context.Context, modelName, alias string, version int) error {
 	return m.setAliasErr
@@ -56,13 +64,15 @@ func (m *mockRunReader) GetRunForRegistration(ctx context.Context, runID, tenant
 // --- Mock Store ---
 
 type mockModelStore struct {
-	record           *models.ModelRecord
-	versions         []*models.ModelVersion
-	createRecordErr  error
-	createVersionErr error
-	getRecordErr     error
-	getVersionErr    error
-	updateStatusErr  error
+	record               *models.ModelRecord
+	versions             []*models.ModelVersion
+	createRecordErr      error
+	createVersionErr     error
+	getRecordErr         error
+	getVersionErr        error
+	updateStatusErr      error
+	promoteStatusErr     error
+	promoteStatusCalled  bool
 }
 
 func (m *mockModelStore) CreateOrGetModelRecord(ctx context.Context, rec *models.ModelRecord) error {
@@ -109,6 +119,10 @@ func (m *mockModelStore) GetModelVersionByNumber(ctx context.Context, modelRecor
 func (m *mockModelStore) UpdateModelVersionStatus(ctx context.Context, id, status string) error {
 	return m.updateStatusErr
 }
+func (m *mockModelStore) PromoteModelVersionStatus(ctx context.Context, modelRecordID, versionID, alias string) error {
+	m.promoteStatusCalled = true
+	return m.promoteStatusErr
+}
 
 // --- Tests ---
 
@@ -139,7 +153,8 @@ func TestService_Register_HappyPath(t *testing.T) {
 }
 
 func TestService_Register_RunNotFound(t *testing.T) {
-	reader := &mockRunReader{err: errors.New("no rows")}
+	// The jobs store returns ErrRunNotFound for missing runs; service maps it to models.ErrRunNotFound.
+	reader := &mockRunReader{err: jobs.ErrRunNotFound}
 	svc := models.NewService(&mockModelStore{}, reader, &mockMLflowClient{})
 
 	_, err := svc.Register(context.Background(), "tenant-1", models.RegisterRequest{
@@ -147,6 +162,40 @@ func TestService_Register_RunNotFound(t *testing.T) {
 	})
 	if !errors.Is(err, models.ErrRunNotFound) {
 		t.Fatalf("expected ErrRunNotFound, got %v", err)
+	}
+}
+
+func TestService_Register_InfraError(t *testing.T) {
+	// A generic DB error is propagated as-is, not masked as ErrRunNotFound.
+	reader := &mockRunReader{err: errors.New("connection refused")}
+	svc := models.NewService(&mockModelStore{}, reader, &mockMLflowClient{})
+
+	_, err := svc.Register(context.Background(), "tenant-1", models.RegisterRequest{
+		RunID: "run-uuid", ModelName: "resnet50",
+	})
+	if errors.Is(err, models.ErrRunNotFound) {
+		t.Fatal("infra error should not be reported as ErrRunNotFound")
+	}
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+}
+
+func TestService_Register_PGFailureTriggersMLflowCleanup(t *testing.T) {
+	mlflowRunIDStr := "mlflow-run-abc"
+	reader := &mockRunReader{projectID: "proj-1", status: "SUCCEEDED", mlflowRunID: &mlflowRunIDStr}
+	mc := &mockMLflowClient{createVersionNum: 1, createVersionArtifactURI: "runs:/mlflow-run-abc/model/"}
+	store := &mockModelStore{createVersionErr: errors.New("db error")}
+
+	svc := models.NewService(store, reader, mc)
+	_, err := svc.Register(context.Background(), "tenant-1", models.RegisterRequest{
+		RunID: "run-uuid", ModelName: "resnet50",
+	})
+	if err == nil {
+		t.Fatal("expected error from PG failure")
+	}
+	if !mc.deleteVersionCalled {
+		t.Error("expected DeleteModelVersion to be called for cleanup on PG failure")
 	}
 }
 
@@ -183,6 +232,9 @@ func TestService_Promote_HappyPath(t *testing.T) {
 	if err := svc.Promote(context.Background(), "resnet50", 1, "production", "tenant-1"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if !store.promoteStatusCalled {
+		t.Error("expected PromoteModelVersionStatus to be called for production alias")
+	}
 }
 
 func TestService_Promote_SkipToProduction(t *testing.T) {
@@ -193,6 +245,15 @@ func TestService_Promote_SkipToProduction(t *testing.T) {
 
 	if err := svc.Promote(context.Background(), "resnet50", 1, "production", "tenant-1"); err != nil {
 		t.Fatalf("expected no error for candidate → production skip, got: %v", err)
+	}
+}
+
+func TestService_Promote_InvalidAlias(t *testing.T) {
+	svc := models.NewService(&mockModelStore{}, &mockRunReader{}, &mockMLflowClient{})
+
+	err := svc.Promote(context.Background(), "resnet50", 1, "experimental", "tenant-1")
+	if err == nil {
+		t.Fatal("expected error for invalid alias")
 	}
 }
 
@@ -251,12 +312,28 @@ func TestService_ResolveAlias_HappyPath(t *testing.T) {
 }
 
 func TestService_ResolveAlias_NotFound(t *testing.T) {
+	// Use mlflow.ErrNotFound so that mlflow.IsNotFound returns true.
 	store := &mockModelStore{}
-	mc := &mockMLflowClient{getVersionByAliasErr: errors.New("alias not found")}
+	mc := &mockMLflowClient{getVersionByAliasErr: mlflow.ErrNotFound}
 	svc := models.NewService(store, &mockRunReader{}, mc)
 
 	_, err := svc.ResolveAlias(context.Background(), "resnet50", "no-alias", "tenant-1")
 	if !errors.Is(err, models.ErrAliasNotFound) {
 		t.Fatalf("expected ErrAliasNotFound, got %v", err)
+	}
+}
+
+func TestService_ResolveAlias_MLflowInfraError(t *testing.T) {
+	// A generic MLflow error (not a not-found) should be propagated as an infra error, not ErrAliasNotFound.
+	store := &mockModelStore{}
+	mc := &mockMLflowClient{getVersionByAliasErr: errors.New("connection refused")}
+	svc := models.NewService(store, &mockRunReader{}, mc)
+
+	_, err := svc.ResolveAlias(context.Background(), "resnet50", "production", "tenant-1")
+	if errors.Is(err, models.ErrAliasNotFound) {
+		t.Fatal("infra error should not be reported as ErrAliasNotFound")
+	}
+	if err == nil {
+		t.Fatal("expected an error")
 	}
 }
