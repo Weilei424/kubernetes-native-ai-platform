@@ -1,7 +1,13 @@
 // control-plane/internal/jobs/model.go
 package jobs
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrRunNotFound is returned by GetRunForRegistration when the run does not exist.
+var ErrRunNotFound = errors.New("training run not found")
 
 // TrainingJob is the platform's representation of a submitted training job.
 type TrainingJob struct {
