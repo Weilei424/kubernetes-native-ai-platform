@@ -17,8 +17,12 @@ import (
 
 // Client is the interface for interacting with the MLflow REST API.
 type Client interface {
-	// CreateRegisteredModel registers a model name. RESOURCE_ALREADY_EXISTS is silently ignored.
-	CreateRegisteredModel(ctx context.Context, name string) error
+	// CreateRegisteredModel registers a model name. Returns true if the model was newly created,
+	// false if it already existed (RESOURCE_ALREADY_EXISTS is silently ignored).
+	CreateRegisteredModel(ctx context.Context, name string) (created bool, err error)
+	// DeleteRegisteredModel removes a registered model and all its versions. Used for best-effort
+	// cleanup when a newly created registered model cannot be persisted to PostgreSQL.
+	DeleteRegisteredModel(ctx context.Context, name string) error
 	// CreateModelVersion creates a new version from the given artifact source.
 	// Returns the version number and the artifact URI echoed by MLflow.
 	CreateModelVersion(ctx context.Context, modelName, sourceURI, runID string) (versionNumber int, artifactURI string, err error)
@@ -120,13 +124,21 @@ func IsNotFound(err error) bool {
 // that need to produce an error that satisfies IsNotFound.
 var ErrNotFound = &mlflowError{ErrorCode: "RESOURCE_DOES_NOT_EXIST", Message: "not found"}
 
-func (c *HTTPClient) CreateRegisteredModel(ctx context.Context, name string) error {
+func (c *HTTPClient) CreateRegisteredModel(ctx context.Context, name string) (bool, error) {
 	body := map[string]string{"name": name}
 	err := c.doJSON(ctx, http.MethodPost, "/api/2.0/mlflow/registered-models/create", body, nil)
 	if isAlreadyExists(err) {
-		return nil
+		return false, nil
 	}
-	return err
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (c *HTTPClient) DeleteRegisteredModel(ctx context.Context, name string) error {
+	body := map[string]string{"name": name}
+	return c.doJSON(ctx, http.MethodDelete, "/api/2.0/mlflow/registered-models/delete", body, nil)
 }
 
 func (c *HTTPClient) CreateModelVersion(ctx context.Context, modelName, sourceURI, runID string) (int, string, error) {
