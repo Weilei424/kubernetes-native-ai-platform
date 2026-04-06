@@ -324,6 +324,9 @@ type mockMLflowForIntegration struct {
 }
 
 func (m *mockMLflowForIntegration) CreateRegisteredModel(ctx context.Context, name string) error { return nil }
+func (m *mockMLflowForIntegration) DeleteModelVersion(ctx context.Context, modelName string, version int) error {
+	return nil
+}
 func (m *mockMLflowForIntegration) CreateModelVersion(ctx context.Context, modelName, sourceURI, runID string) (int, string, error) {
 	m.versionNum++
 	return m.versionNum, sourceURI, nil
