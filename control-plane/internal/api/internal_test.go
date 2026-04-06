@@ -94,6 +94,46 @@ func TestInternalStatus_QueuedToFailed(t *testing.T) {
 	}
 }
 
+func TestInternalStatus_SetsMLflowRunID(t *testing.T) {
+	handler, store, tenantID, projectID := setupInternalTest(t)
+	ctx := context.Background()
+
+	job := &jobs.TrainingJob{
+		TenantID: tenantID, ProjectID: projectID, Name: "mlflow-job",
+		Status: "PENDING", Image: "img:1", Command: []string{"run"},
+		Args: []string{}, Env: map[string]string{},
+		NumWorkers: 1, WorkerCPU: "1", WorkerMemory: "1Gi",
+		HeadCPU: "1", HeadMemory: "1Gi",
+	}
+	run := &jobs.TrainingRun{TenantID: tenantID, Status: "PENDING"}
+	store.CreateJobWithRun(ctx, job, run)
+	store.TransitionJobStatus(ctx, job.ID, "PENDING", "QUEUED", nil)
+	store.TransitionJobStatus(ctx, job.ID, "QUEUED", "RUNNING", nil)
+
+	mlflowID := "mlflow-abc123"
+	body := map[string]interface{}{
+		"status":        "SUCCEEDED",
+		"mlflow_run_id": mlflowID,
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPatch, "/internal/v1/jobs/"+job.ID+"/status", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	got, err := store.GetRunByJobID(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if got.MLflowRunID == nil || *got.MLflowRunID != mlflowID {
+		t.Fatalf("expected mlflow_run_id %q, got %v", mlflowID, got.MLflowRunID)
+	}
+}
+
 func TestInternalStatus_InvalidTransition(t *testing.T) {
 	handler, store, tenantID, projectID := setupInternalTest(t)
 	ctx := context.Background()
