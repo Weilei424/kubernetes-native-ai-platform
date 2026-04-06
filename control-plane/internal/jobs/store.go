@@ -31,6 +31,11 @@ type Store interface {
 	GetTenantIDsWithPendingJobs(ctx context.Context) ([]string, error)
 	GetQueuedJobsWithoutRayJob(ctx context.Context) ([]*TrainingJob, error)
 	SetRayJobName(ctx context.Context, id, rayJobName string) error
+	// SetMLflowRunID records the MLflow run ID on the training_run for the given job.
+	SetMLflowRunID(ctx context.Context, jobID, mlflowRunID string) error
+	// GetRunForRegistration returns the project ID, status, and MLflow run ID for a
+	// training run, used by the model registration workflow.
+	GetRunForRegistration(ctx context.Context, runID, tenantID string) (projectID, status string, mlflowRunID *string, err error)
 	TransitionJobStatus(ctx context.Context, id, from, to string, failureReason *string) error
 	GetTenantQuota(ctx context.Context, tenantID string) (cpuMillicores, memoryBytes int64, err error)
 	// ProjectBelongsToTenant returns nil if project exists and is owned by tenantID,
@@ -274,6 +279,25 @@ func (s *PostgresJobStore) SetRayJobName(ctx context.Context, id, rayJobName str
 		rayJobName, id,
 	)
 	return err
+}
+
+func (s *PostgresJobStore) SetMLflowRunID(ctx context.Context, jobID, mlflowRunID string) error {
+	_, err := s.db.Exec(ctx,
+		`UPDATE training_runs SET mlflow_run_id = $1, updated_at = now() WHERE job_id = $2`,
+		mlflowRunID, jobID,
+	)
+	return err
+}
+
+func (s *PostgresJobStore) GetRunForRegistration(ctx context.Context, runID, tenantID string) (projectID, status string, mlflowRunID *string, err error) {
+	err = s.db.QueryRow(ctx, `
+		SELECT tj.project_id::text, tr.status, tr.mlflow_run_id
+		FROM training_runs tr
+		JOIN training_jobs tj ON tj.id = tr.job_id
+		WHERE tr.id = $1 AND tr.tenant_id = $2`,
+		runID, tenantID,
+	).Scan(&projectID, &status, &mlflowRunID)
+	return
 }
 
 func (s *PostgresJobStore) TransitionJobStatus(ctx context.Context, id, from, to string, failureReason *string) error {
