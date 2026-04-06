@@ -212,12 +212,59 @@ func TestUpdateModelVersionStatus(t *testing.T) {
 	}
 	store.CreateModelVersion(ctx, ver)
 
-	if err := store.UpdateModelVersionStatus(ctx, ver.ID, "production"); err != nil {
+	if err := store.UpdateModelVersionStatus(ctx, ver.ID, "archived"); err != nil {
 		t.Fatalf("update status: %v", err)
 	}
 
 	got, _ := store.GetModelVersionByNumber(ctx, rec.ID, 1)
-	if got.Status != "production" {
-		t.Fatalf("expected status 'production', got %q", got.Status)
+	if got.Status != "archived" {
+		t.Fatalf("expected status 'archived', got %q", got.Status)
+	}
+}
+
+func TestPromoteModelVersionStatus_ClearsPriorHolder(t *testing.T) {
+	store, tenantID, projectID, runID := setupStoreTest(t)
+	ctx := context.Background()
+
+	rec := &models.ModelRecord{
+		TenantID: tenantID, ProjectID: projectID,
+		Name: "alexnet", MLflowRegisteredModelName: tenantID + "-alexnet",
+	}
+	store.CreateOrGetModelRecord(ctx, rec)
+
+	// Create v1 and v2.
+	v1 := &models.ModelVersion{
+		ModelRecordID: rec.ID, TenantID: tenantID,
+		VersionNumber: 1, MLflowRunID: "mlflow-run-xyz",
+		SourceRunID: runID, ArtifactURI: "runs:/mlflow-run-xyz/model/", Status: "candidate",
+	}
+	v2 := &models.ModelVersion{
+		ModelRecordID: rec.ID, TenantID: tenantID,
+		VersionNumber: 2, MLflowRunID: "mlflow-run-xyz",
+		SourceRunID: runID, ArtifactURI: "runs:/mlflow-run-xyz/model/", Status: "candidate",
+	}
+	store.CreateModelVersion(ctx, v1)
+	store.CreateModelVersion(ctx, v2)
+
+	// Promote v1 to production.
+	if err := store.PromoteModelVersionStatus(ctx, rec.ID, v1.ID, "production"); err != nil {
+		t.Fatalf("promote v1 to production: %v", err)
+	}
+	got1, _ := store.GetModelVersionByNumber(ctx, rec.ID, 1)
+	if got1.Status != "production" {
+		t.Fatalf("expected v1 status 'production', got %q", got1.Status)
+	}
+
+	// Promote v2 to production — v1 should be reset to candidate.
+	if err := store.PromoteModelVersionStatus(ctx, rec.ID, v2.ID, "production"); err != nil {
+		t.Fatalf("promote v2 to production: %v", err)
+	}
+	got1, _ = store.GetModelVersionByNumber(ctx, rec.ID, 1)
+	if got1.Status != "candidate" {
+		t.Fatalf("expected v1 status reset to 'candidate', got %q", got1.Status)
+	}
+	got2, _ := store.GetModelVersionByNumber(ctx, rec.ID, 2)
+	if got2.Status != "production" {
+		t.Fatalf("expected v2 status 'production', got %q", got2.Status)
 	}
 }
