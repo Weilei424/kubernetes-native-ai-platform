@@ -24,8 +24,12 @@ func TestCreateRegisteredModel_Success(t *testing.T) {
 	defer srv.Close()
 
 	c := mlflow.New(srv.URL)
-	if err := c.CreateRegisteredModel(context.Background(), "tenant1-resnet50"); err != nil {
+	created, err := c.CreateRegisteredModel(context.Background(), "tenant1-resnet50")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !created {
+		t.Error("expected created=true for new model")
 	}
 }
 
@@ -40,9 +44,29 @@ func TestCreateRegisteredModel_AlreadyExists(t *testing.T) {
 	defer srv.Close()
 
 	c := mlflow.New(srv.URL)
-	// RESOURCE_ALREADY_EXISTS must be silently ignored.
-	if err := c.CreateRegisteredModel(context.Background(), "tenant1-resnet50"); err != nil {
+	// RESOURCE_ALREADY_EXISTS must be silently ignored; created must be false.
+	created, err := c.CreateRegisteredModel(context.Background(), "tenant1-resnet50")
+	if err != nil {
 		t.Fatalf("expected nil for RESOURCE_ALREADY_EXISTS, got: %v", err)
+	}
+	if created {
+		t.Error("expected created=false when model already existed")
+	}
+}
+
+func TestDeleteRegisteredModel_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/api/2.0/mlflow/registered-models/delete" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{})
+	}))
+	defer srv.Close()
+
+	c := mlflow.New(srv.URL)
+	if err := c.DeleteRegisteredModel(context.Background(), "tenant1-resnet50"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
