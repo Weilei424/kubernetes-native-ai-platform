@@ -25,7 +25,12 @@ type Store interface {
 	// GetModelVersionByNumber returns a specific version of a model record.
 	GetModelVersionByNumber(ctx context.Context, modelRecordID string, versionNumber int) (*ModelVersion, error)
 	// UpdateModelVersionStatus sets the status field on a model version.
+	// Used for terminal transitions (archived) where no alias clearing is needed.
 	UpdateModelVersionStatus(ctx context.Context, id, status string) error
+	// PromoteModelVersionStatus atomically clears all other versions that hold the given alias
+	// status for this model record, then sets versionID's status to alias. Used for staging and
+	// production promotions to maintain the invariant that only one version holds each alias status.
+	PromoteModelVersionStatus(ctx context.Context, modelRecordID, versionID, alias string) error
 }
 
 // PostgresModelStore implements Store against PostgreSQL.
@@ -154,6 +159,38 @@ func (s *PostgresModelStore) UpdateModelVersionStatus(ctx context.Context, id, s
 		return ErrVersionNotFound
 	}
 	return nil
+}
+
+func (s *PostgresModelStore) PromoteModelVersionStatus(ctx context.Context, modelRecordID, versionID, alias string) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Clear all other versions of this model that currently hold the same alias.
+	_, err = tx.Exec(ctx,
+		`UPDATE model_versions SET status = 'candidate', updated_at = now()
+		 WHERE model_record_id = $1 AND status = $2 AND id != $3::uuid`,
+		modelRecordID, alias, versionID,
+	)
+	if err != nil {
+		return fmt.Errorf("clear prior alias holders: %w", err)
+	}
+
+	// Set the target version's status.
+	tag, err := tx.Exec(ctx,
+		`UPDATE model_versions SET status = $1, updated_at = now() WHERE id = $2::uuid`,
+		alias, versionID,
+	)
+	if err != nil {
+		return fmt.Errorf("set version status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrVersionNotFound
+	}
+
+	return tx.Commit(ctx)
 }
 
 type scannable interface {
