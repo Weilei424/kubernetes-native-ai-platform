@@ -16,6 +16,7 @@ var (
 	ErrVersionArchived = errors.New("model version is archived and cannot be promoted")
 	ErrAliasNotFound        = errors.New("alias not found")
 	ErrVersionAlreadyExists = errors.New("model version already exists")
+	ErrInvalidAlias         = errors.New("invalid alias: must be staging, production, or archived")
 )
 
 // ModelRecord is the platform's representation of a named model.
