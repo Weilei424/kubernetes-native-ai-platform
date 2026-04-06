@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -297,6 +298,9 @@ func (s *PostgresJobStore) GetRunForRegistration(ctx context.Context, runID, ten
 		WHERE tr.id = $1 AND tr.tenant_id = $2`,
 		runID, tenantID,
 	).Scan(&projectID, &status, &mlflowRunID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = ErrRunNotFound
+	}
 	return
 }
 
