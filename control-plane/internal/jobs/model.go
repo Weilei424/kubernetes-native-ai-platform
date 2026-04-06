@@ -67,6 +67,7 @@ type ResourceSpec struct {
 type StatusUpdateRequest struct {
 	Status        string  `json:"status"`
 	FailureReason *string `json:"failure_reason,omitempty"`
+	MLflowRunID   *string `json:"mlflow_run_id,omitempty"`
 }
 
 // JobEvent payload published to Kafka on every state transition.
