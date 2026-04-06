@@ -44,7 +44,7 @@
 - Create: `control-plane/migrations/010_create_model_versions.up.sql`
 - Create: `control-plane/migrations/010_create_model_versions.down.sql`
 
-- [ ] **Step 1: Write migration 009 up**
+- [x] **Step 1: Write migration 009 up**
 
 `control-plane/migrations/009_create_model_records.up.sql`:
 ```sql
@@ -62,14 +62,14 @@ CREATE TABLE model_records (
 CREATE INDEX idx_model_records_tenant_name ON model_records (tenant_id, name);
 ```
 
-- [ ] **Step 2: Write migration 009 down**
+- [x] **Step 2: Write migration 009 down**
 
 `control-plane/migrations/009_create_model_records.down.sql`:
 ```sql
 DROP TABLE IF EXISTS model_records;
 ```
 
-- [ ] **Step 3: Write migration 010 up**
+- [x] **Step 3: Write migration 010 up**
 
 `control-plane/migrations/010_create_model_versions.up.sql`:
 ```sql
@@ -91,14 +91,14 @@ CREATE INDEX idx_model_versions_model_record_id ON model_versions (model_record_
 CREATE INDEX idx_model_versions_tenant_id ON model_versions (tenant_id);
 ```
 
-- [ ] **Step 4: Write migration 010 down**
+- [x] **Step 4: Write migration 010 down**
 
 `control-plane/migrations/010_create_model_versions.down.sql`:
 ```sql
 DROP TABLE IF EXISTS model_versions;
 ```
 
-- [ ] **Step 5: Verify migrations run cleanly**
+- [x] **Step 5: Verify migrations run cleanly**
 
 Run from `control-plane/`:
 ```bash
@@ -111,7 +111,7 @@ ls control-plane/migrations/009* control-plane/migrations/010*
 ```
 Expected: 4 files listed.
 
-- [ ] **Step 6: Commit message**
+- [x] **Step 6: Commit message**
 
 ```
 migrations/009_create_model_records: add model_records table with tenant/project scoping
@@ -128,7 +128,7 @@ migrations/010_create_model_versions: add model_versions table with source run t
 - Modify: `control-plane/internal/api/internal.go`
 - Modify: `control-plane/internal/api/internal_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `control-plane/internal/api/internal_test.go`, after the existing tests:
 
@@ -174,14 +174,14 @@ func TestInternalStatus_SetsMLflowRunID(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 ```bash
 cd control-plane && go test ./internal/api/... -run TestInternalStatus_SetsMLflowRunID -v
 ```
 Expected: FAIL — `StatusUpdateRequest` has no `MLflowRunID` field, and `SetMLflowRunID` does not exist.
 
-- [ ] **Step 3: Add MLflowRunID to StatusUpdateRequest**
+- [x] **Step 3: Add MLflowRunID to StatusUpdateRequest**
 
 In `control-plane/internal/jobs/model.go`, update `StatusUpdateRequest`:
 ```go
@@ -193,7 +193,7 @@ type StatusUpdateRequest struct {
 }
 ```
 
-- [ ] **Step 4: Add SetMLflowRunID and GetRunForRegistration to Store interface**
+- [x] **Step 4: Add SetMLflowRunID and GetRunForRegistration to Store interface**
 
 In `control-plane/internal/jobs/store.go`, add two methods to the `Store` interface (after `SetRayJobName`):
 ```go
@@ -204,7 +204,7 @@ SetMLflowRunID(ctx context.Context, jobID, mlflowRunID string) error
 GetRunForRegistration(ctx context.Context, runID, tenantID string) (projectID, status string, mlflowRunID *string, err error)
 ```
 
-- [ ] **Step 5: Implement SetMLflowRunID on PostgresJobStore**
+- [x] **Step 5: Implement SetMLflowRunID on PostgresJobStore**
 
 Add after `SetRayJobName` in `control-plane/internal/jobs/store.go`:
 ```go
@@ -217,7 +217,7 @@ func (s *PostgresJobStore) SetMLflowRunID(ctx context.Context, jobID, mlflowRunI
 }
 ```
 
-- [ ] **Step 6: Implement GetRunForRegistration on PostgresJobStore**
+- [x] **Step 6: Implement GetRunForRegistration on PostgresJobStore**
 
 Add after `SetMLflowRunID` in `control-plane/internal/jobs/store.go`:
 ```go
@@ -233,7 +233,7 @@ func (s *PostgresJobStore) GetRunForRegistration(ctx context.Context, runID, ten
 }
 ```
 
-- [ ] **Step 7: Update internal handler to call SetMLflowRunID**
+- [x] **Step 7: Update internal handler to call SetMLflowRunID**
 
 In `control-plane/internal/api/internal.go`, in `handleUpdateJobStatus`, add after the `TransitionJobStatus` call and before the Kafka publish:
 ```go
@@ -244,21 +244,21 @@ if req.MLflowRunID != nil {
 }
 ```
 
-- [ ] **Step 8: Run the test to verify it passes**
+- [x] **Step 8: Run the test to verify it passes**
 
 ```bash
 cd control-plane && go test ./internal/api/... -run TestInternalStatus_SetsMLflowRunID -v
 ```
 Expected: PASS
 
-- [ ] **Step 9: Run all existing internal tests to confirm no regression**
+- [x] **Step 9: Run all existing internal tests to confirm no regression**
 
 ```bash
 cd control-plane && go test ./internal/... -v 2>&1 | tail -20
 ```
 Expected: all tests PASS.
 
-- [ ] **Step 10: Commit messages**
+- [x] **Step 10: Commit messages**
 
 ```
 internal/jobs/model.go: add MLflowRunID field to StatusUpdateRequest
@@ -275,7 +275,7 @@ internal/api/internal_test.go: add TestInternalStatus_SetsMLflowRunID
 - Create: `control-plane/internal/mlflow/client.go`
 - Create: `control-plane/internal/mlflow/client_test.go`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `control-plane/internal/mlflow/client_test.go`:
 
@@ -436,14 +436,14 @@ func TestGetModelVersionByAlias_NotFound(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 cd control-plane && go test ./internal/mlflow/... -v
 ```
 Expected: FAIL — package does not exist yet.
 
-- [ ] **Step 3: Implement the MLflow client**
+- [x] **Step 3: Implement the MLflow client**
 
 Create `control-plane/internal/mlflow/client.go`:
 
@@ -622,14 +622,14 @@ func (c *HTTPClient) GetModelVersionByAlias(modelName, alias string) (int, error
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 ```bash
 cd control-plane && go test ./internal/mlflow/... -v
 ```
 Expected: all 6 tests PASS.
 
-- [ ] **Step 5: Commit messages**
+- [x] **Step 5: Commit messages**
 
 ```
 internal/mlflow/client.go: MLflow REST client implementing the Client interface
@@ -643,7 +643,7 @@ internal/mlflow/client_test.go: unit tests for all client methods using httptest
 **Files:**
 - Create: `control-plane/internal/models/model.go`
 
-- [ ] **Step 1: Create model.go**
+- [x] **Step 1: Create model.go**
 
 Create `control-plane/internal/models/model.go`:
 
@@ -705,7 +705,7 @@ type PromoteRequest struct {
 }
 ```
 
-- [ ] **Step 2: Verify it compiles**
+- [x] **Step 2: Verify it compiles**
 
 ```bash
 cd control-plane && go build ./internal/models/...
@@ -720,7 +720,7 @@ Expected: no errors.
 - Create: `control-plane/internal/models/store.go`
 - Create: `control-plane/internal/models/store_test.go`
 
-- [ ] **Step 1: Write the failing store tests**
+- [x] **Step 1: Write the failing store tests**
 
 Create `control-plane/internal/models/store_test.go`:
 
@@ -949,14 +949,14 @@ func TestUpdateModelVersionStatus(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 cd control-plane && go test ./internal/models/... -v 2>&1 | head -20
 ```
 Expected: FAIL — `models.Store`, `models.NewPostgresModelStore` do not exist.
 
-- [ ] **Step 3: Implement the models store**
+- [x] **Step 3: Implement the models store**
 
 Create `control-plane/internal/models/store.go`:
 
@@ -1126,7 +1126,7 @@ func scanVersion(row scannable) (*ModelVersion, error) {
 }
 ```
 
-- [ ] **Step 4: Run the store tests to verify they pass**
+- [x] **Step 4: Run the store tests to verify they pass**
 
 ```bash
 cd control-plane && go test ./internal/models/... -run TestCreate -v
@@ -1136,7 +1136,7 @@ cd control-plane && go test ./internal/models/... -run TestUpdate -v
 ```
 Expected: all PASS.
 
-- [ ] **Step 5: Commit messages**
+- [x] **Step 5: Commit messages**
 
 ```
 internal/models/model.go: domain types, error sentinels for model lifecycle
@@ -1152,7 +1152,7 @@ internal/models/store_test.go: integration tests for all store methods against r
 - Create: `control-plane/internal/models/service.go`
 - Create: `control-plane/internal/models/service_test.go`
 
-- [ ] **Step 1: Write the failing service tests**
+- [x] **Step 1: Write the failing service tests**
 
 Create `control-plane/internal/models/service_test.go`:
 
@@ -1401,14 +1401,14 @@ func TestService_ResolveAlias_NotFound(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 cd control-plane && go test ./internal/models/... -run TestService -v 2>&1 | head -20
 ```
 Expected: FAIL — `models.NewService` does not exist.
 
-- [ ] **Step 3: Implement the models service**
+- [x] **Step 3: Implement the models service**
 
 Create `control-plane/internal/models/service.go`:
 
@@ -1575,21 +1575,21 @@ func (s *Service) ResolveAlias(ctx context.Context, name, alias, tenantID string
 }
 ```
 
-- [ ] **Step 4: Run the service tests to verify they pass**
+- [x] **Step 4: Run the service tests to verify they pass**
 
 ```bash
 cd control-plane && go test ./internal/models/... -run TestService -v
 ```
 Expected: all 8 service tests PASS.
 
-- [ ] **Step 5: Run all model tests**
+- [x] **Step 5: Run all model tests**
 
 ```bash
 cd control-plane && go test ./internal/models/... -v 2>&1 | tail -20
 ```
 Expected: all tests PASS.
 
-- [ ] **Step 6: Commit messages**
+- [x] **Step 6: Commit messages**
 
 ```
 internal/models/service.go: Service orchestrating run validation, MLflow calls, and PostgreSQL persistence
@@ -1603,7 +1603,7 @@ internal/models/service_test.go: unit tests for all service methods with mock de
 **Files:**
 - Create: `control-plane/internal/api/models.go`
 
-- [ ] **Step 1: Write the failing handler tests**
+- [x] **Step 1: Write the failing handler tests**
 
 Create `control-plane/internal/api/models_test.go`:
 
@@ -1872,14 +1872,14 @@ func TestModelsAPI_CrossTenantRejection(t *testing.T) {
 var _ = errors.New
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 cd control-plane && go test ./internal/api/... -run TestModelsAPI -v 2>&1 | head -20
 ```
 Expected: FAIL — `api.ModelsService` interface and model routes do not exist.
 
-- [ ] **Step 3: Implement the models handlers**
+- [x] **Step 3: Implement the models handlers**
 
 Create `control-plane/internal/api/models.go`:
 
@@ -2028,7 +2028,7 @@ func (h *modelsHandler) handleResolveAlias(w http.ResponseWriter, r *http.Reques
 }
 ```
 
-- [ ] **Step 4: Update router.go to accept and wire the models service**
+- [x] **Step 4: Update router.go to accept and wire the models service**
 
 In `control-plane/internal/api/router.go`, change the function signature and add model routes:
 
@@ -2090,14 +2090,14 @@ func NewRouter(db *pgxpool.Pool, store jobs.Store, publisher events.Publisher, m
 }
 ```
 
-- [ ] **Step 5: Run the handler tests to verify they pass**
+- [x] **Step 5: Run the handler tests to verify they pass**
 
 ```bash
 cd control-plane && go test ./internal/api/... -run TestModelsAPI -v
 ```
 Expected: all handler tests PASS.
 
-- [ ] **Step 6: Add full-stack integration tests to models_test.go**
+- [x] **Step 6: Add full-stack integration tests to models_test.go**
 
 Append the following to `control-plane/internal/api/models_test.go`. These tests use the **real service + real DB + mock MLflow client**, verifying the full handler → service → store → PostgreSQL path:
 
@@ -2260,14 +2260,14 @@ func TestModelsIntegration_SourceRunTraceability(t *testing.T) {
 
 Also add `"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/models"` to the imports in `models_test.go` if not already present (it is already imported via mockModelsService).
 
-- [ ] **Step 7: Run all API tests to confirm no regression**
+- [x] **Step 7: Run all API tests to confirm no regression**
 
 ```bash
 cd control-plane && go test ./internal/api/... -v 2>&1 | tail -30
 ```
 Expected: all tests PASS, including the 3 new `TestModelsIntegration_*` tests.
 
-- [ ] **Step 8: Commit messages**
+- [x] **Step 8: Commit messages**
 
 ```
 internal/api/models.go: HTTP handlers for model registration, promotion, and alias resolution
@@ -2282,7 +2282,7 @@ internal/api/router.go: register model routes and accept ModelsService dependenc
 **Files:**
 - Modify: `control-plane/cmd/server/main.go`
 
-- [ ] **Step 1: Update main.go**
+- [x] **Step 1: Update main.go**
 
 Replace the `NewRouter` call and add MLflow + models wiring in `control-plane/cmd/server/main.go`.
 
@@ -2310,21 +2310,21 @@ Replace the last `NewRouter` call:
 r := api.NewRouter(pool, store, publisher, modelsSvc)
 ```
 
-- [ ] **Step 2: Verify the binary compiles**
+- [x] **Step 2: Verify the binary compiles**
 
 ```bash
 cd control-plane && go build ./cmd/server/...
 ```
 Expected: no errors.
 
-- [ ] **Step 3: Run the full test suite**
+- [x] **Step 3: Run the full test suite**
 
 ```bash
 cd control-plane && go test ./... 2>&1 | tail -30
 ```
 Expected: all tests PASS.
 
-- [ ] **Step 4: Commit message**
+- [x] **Step 4: Commit message**
 
 ```
 cmd/server/main.go: wire MLflow client and models service into the HTTP router
@@ -2336,15 +2336,15 @@ cmd/server/main.go: wire MLflow client and models service into the HTTP router
 
 After all tasks are complete, verify:
 
-- [ ] `go test ./...` passes with no failures
-- [ ] `go build ./...` and `go build ./cmd/server/...` produce no errors  
-- [ ] `go vet ./...` produces no warnings
-- [ ] Migration files 009 and 010 exist and follow the existing naming convention
-- [ ] `model_versions.source_run_id` traces back to `training_runs.id` (FK in migration)
-- [ ] `SetMLflowRunID` is called in the internal handler only when `req.MLflowRunID != nil`
-- [ ] `archived` status is terminal in `Promote` (verified by `TestService_Promote_ArchivedRejected`)
-- [ ] `candidate → production` skip is valid (verified by `TestService_Promote_SkipToProduction`)
-- [ ] MLflow model name is prefixed with `tenantID + "-"` in `Service.Register`
-- [ ] `ModelsService` interface is exported (capital M) so test file can reference it
-- [ ] No model routes are registered when `modelsSvc == nil` (router nil-guard)
-- [ ] Mark all Phase 2 items as `[x]` in `docs/planning/BACKLOG.md`
+- [x] `go test ./...` passes with no failures
+- [x] `go build ./...` and `go build ./cmd/server/...` produce no errors  
+- [x] `go vet ./...` produces no warnings
+- [x] Migration files 009 and 010 exist and follow the existing naming convention
+- [x] `model_versions.source_run_id` traces back to `training_runs.id` (FK in migration)
+- [x] `SetMLflowRunID` is called in the internal handler only when `req.MLflowRunID != nil`
+- [x] `archived` status is terminal in `Promote` (verified by `TestService_Promote_ArchivedRejected`)
+- [x] `candidate → production` skip is valid (verified by `TestService_Promote_SkipToProduction`)
+- [x] MLflow model name is prefixed with `tenantID + "-"` in `Service.Register`
+- [x] `ModelsService` interface is exported (capital M) so test file can reference it
+- [x] No model routes are registered when `modelsSvc == nil` (router nil-guard)
+- [x] Mark all Phase 2 items as `[x]` in `docs/planning/BACKLOG.md`
