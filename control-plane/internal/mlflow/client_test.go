@@ -152,4 +152,23 @@ func TestGetModelVersionByAlias_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for not found alias, got nil")
 	}
+	if !mlflow.IsNotFound(err) {
+		t.Errorf("expected IsNotFound to be true, got false for err: %v", err)
+	}
+}
+
+func TestDeleteModelVersion_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/api/2.0/mlflow/model-versions/delete" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{})
+	}))
+	defer srv.Close()
+
+	c := mlflow.New(srv.URL)
+	if err := c.DeleteModelVersion(context.Background(), "tenant1-resnet50", 1); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
