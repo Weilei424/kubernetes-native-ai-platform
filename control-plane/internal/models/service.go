@@ -60,12 +60,16 @@ func (s *Service) Register(ctx context.Context, tenantID string, req RegisterReq
 	source := "runs:/" + *mlflowRunID + "/" + artifactPath
 	mlflowModelName := tenantID + "-" + req.ModelName
 
-	if err := s.mlflowClient.CreateRegisteredModel(ctx, mlflowModelName); err != nil {
+	registeredModelCreated, err := s.mlflowClient.CreateRegisteredModel(ctx, mlflowModelName)
+	if err != nil {
 		return nil, fmt.Errorf("create registered model: %w", err)
 	}
 
 	versionNum, artifactURI, err := s.mlflowClient.CreateModelVersion(ctx, mlflowModelName, source, *mlflowRunID)
 	if err != nil {
+		if registeredModelCreated {
+			_ = s.mlflowClient.DeleteRegisteredModel(ctx, mlflowModelName)
+		}
 		return nil, fmt.Errorf("create model version: %w", err)
 	}
 
@@ -76,8 +80,12 @@ func (s *Service) Register(ctx context.Context, tenantID string, req RegisterReq
 		MLflowRegisteredModelName: mlflowModelName,
 	}
 	if err := s.store.CreateOrGetModelRecord(ctx, rec); err != nil {
-		// Best-effort cleanup: delete the MLflow version we just created.
+		// Best-effort cleanup: delete version and, if we created the registered model,
+		// the model itself (no PG record exists to track it).
 		_ = s.mlflowClient.DeleteModelVersion(ctx, mlflowModelName, versionNum)
+		if registeredModelCreated {
+			_ = s.mlflowClient.DeleteRegisteredModel(ctx, mlflowModelName)
+		}
 		return nil, fmt.Errorf("persist model record: %w", err)
 	}
 
@@ -91,7 +99,8 @@ func (s *Service) Register(ctx context.Context, tenantID string, req RegisterReq
 		Status:        "candidate",
 	}
 	if err := s.store.CreateModelVersion(ctx, ver); err != nil {
-		// Best-effort cleanup: delete the MLflow version we just created.
+		// PG model record was created successfully, so the registered model is tracked.
+		// Only clean up the version.
 		_ = s.mlflowClient.DeleteModelVersion(ctx, mlflowModelName, versionNum)
 		return nil, fmt.Errorf("persist model version: %w", err)
 	}
@@ -130,7 +139,7 @@ func (s *Service) GetModelVersion(ctx context.Context, name string, versionNumbe
 // prior holder of that alias in PostgreSQL to maintain single-holder consistency.
 func (s *Service) Promote(ctx context.Context, name string, versionNumber int, alias, tenantID string) error {
 	if !validPromoteAliases[alias] {
-		return fmt.Errorf("invalid alias %q: must be staging, production, or archived", alias)
+		return ErrInvalidAlias
 	}
 
 	rec, err := s.store.GetModelRecordByName(ctx, name, tenantID)
