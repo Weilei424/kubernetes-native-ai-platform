@@ -14,21 +14,28 @@ import (
 // --- Mock MLflow client ---
 
 type mockMLflowClient struct {
-	createRegisteredModelErr error
-	createVersionNum         int
-	createVersionArtifactURI string
-	createVersionErr         error
-	deleteVersionErr         error
-	deleteVersionCalled      bool
-	setAliasErr              error
-	deleteAliasErr           error
-	getVersionByAliasNum     int
-	getVersionByAliasErr     error
-	deletedAliases           []string
+	createRegisteredModelCreated bool
+	createRegisteredModelErr     error
+	createVersionNum             int
+	createVersionArtifactURI     string
+	createVersionErr             error
+	deleteVersionErr             error
+	deleteVersionCalled          bool
+	deleteRegisteredModelErr     error
+	deleteRegisteredModelCalled  bool
+	setAliasErr                  error
+	deleteAliasErr               error
+	getVersionByAliasNum         int
+	getVersionByAliasErr         error
+	deletedAliases               []string
 }
 
-func (m *mockMLflowClient) CreateRegisteredModel(ctx context.Context, name string) error {
-	return m.createRegisteredModelErr
+func (m *mockMLflowClient) CreateRegisteredModel(ctx context.Context, name string) (bool, error) {
+	return m.createRegisteredModelCreated, m.createRegisteredModelErr
+}
+func (m *mockMLflowClient) DeleteRegisteredModel(ctx context.Context, name string) error {
+	m.deleteRegisteredModelCalled = true
+	return m.deleteRegisteredModelErr
 }
 func (m *mockMLflowClient) CreateModelVersion(ctx context.Context, modelName, sourceURI, runID string) (int, string, error) {
 	return m.createVersionNum, m.createVersionArtifactURI, m.createVersionErr
@@ -131,7 +138,11 @@ func mlflowRunID(s string) *string { return &s }
 func TestService_Register_HappyPath(t *testing.T) {
 	mlflowRunIDStr := "mlflow-run-abc"
 	reader := &mockRunReader{projectID: "proj-1", status: "SUCCEEDED", mlflowRunID: &mlflowRunIDStr}
-	mc := &mockMLflowClient{createVersionNum: 1, createVersionArtifactURI: "runs:/mlflow-run-abc/model/"}
+	mc := &mockMLflowClient{
+		createRegisteredModelCreated: true,
+		createVersionNum:             1,
+		createVersionArtifactURI:     "runs:/mlflow-run-abc/model/",
+	}
 	store := &mockModelStore{}
 
 	svc := models.NewService(store, reader, mc)
@@ -181,10 +192,16 @@ func TestService_Register_InfraError(t *testing.T) {
 	}
 }
 
-func TestService_Register_PGFailureTriggersMLflowCleanup(t *testing.T) {
+func TestService_Register_PGVersionFailureCleansUpVersion(t *testing.T) {
+	// PG CreateModelVersion fails after the model record was persisted.
+	// Only the MLflow version should be cleaned up (registered model is tracked via model record).
 	mlflowRunIDStr := "mlflow-run-abc"
 	reader := &mockRunReader{projectID: "proj-1", status: "SUCCEEDED", mlflowRunID: &mlflowRunIDStr}
-	mc := &mockMLflowClient{createVersionNum: 1, createVersionArtifactURI: "runs:/mlflow-run-abc/model/"}
+	mc := &mockMLflowClient{
+		createRegisteredModelCreated: true,
+		createVersionNum:             1,
+		createVersionArtifactURI:     "runs:/mlflow-run-abc/model/",
+	}
 	store := &mockModelStore{createVersionErr: errors.New("db error")}
 
 	svc := models.NewService(store, reader, mc)
@@ -196,6 +213,63 @@ func TestService_Register_PGFailureTriggersMLflowCleanup(t *testing.T) {
 	}
 	if !mc.deleteVersionCalled {
 		t.Error("expected DeleteModelVersion to be called for cleanup on PG failure")
+	}
+	if mc.deleteRegisteredModelCalled {
+		t.Error("should NOT delete registered model when model record was persisted to PG")
+	}
+}
+
+func TestService_Register_PGRecordFailureCleansUpModelAndVersion(t *testing.T) {
+	// PG CreateOrGetModelRecord fails — no model record in PG, so the newly created MLflow
+	// registered model and version are both orphaned and must be cleaned up.
+	mlflowRunIDStr := "mlflow-run-abc"
+	reader := &mockRunReader{projectID: "proj-1", status: "SUCCEEDED", mlflowRunID: &mlflowRunIDStr}
+	mc := &mockMLflowClient{
+		createRegisteredModelCreated: true,
+		createVersionNum:             1,
+		createVersionArtifactURI:     "runs:/mlflow-run-abc/model/",
+	}
+	store := &mockModelStore{createRecordErr: errors.New("db error")}
+
+	svc := models.NewService(store, reader, mc)
+	_, err := svc.Register(context.Background(), "tenant-1", models.RegisterRequest{
+		RunID: "run-uuid", ModelName: "resnet50",
+	})
+	if err == nil {
+		t.Fatal("expected error from PG failure")
+	}
+	if !mc.deleteVersionCalled {
+		t.Error("expected DeleteModelVersion to be called for cleanup")
+	}
+	if !mc.deleteRegisteredModelCalled {
+		t.Error("expected DeleteRegisteredModel to be called when registered model was newly created")
+	}
+}
+
+func TestService_Register_PGRecordFailureNoCleanupIfModelExisted(t *testing.T) {
+	// PG CreateOrGetModelRecord fails, but the registered model already existed in MLflow
+	// (createRegisteredModelCreated=false). Should NOT delete the registered model.
+	mlflowRunIDStr := "mlflow-run-abc"
+	reader := &mockRunReader{projectID: "proj-1", status: "SUCCEEDED", mlflowRunID: &mlflowRunIDStr}
+	mc := &mockMLflowClient{
+		createRegisteredModelCreated: false, // already existed
+		createVersionNum:             2,
+		createVersionArtifactURI:     "runs:/mlflow-run-abc/model/",
+	}
+	store := &mockModelStore{createRecordErr: errors.New("db error")}
+
+	svc := models.NewService(store, reader, mc)
+	_, err := svc.Register(context.Background(), "tenant-1", models.RegisterRequest{
+		RunID: "run-uuid", ModelName: "resnet50",
+	})
+	if err == nil {
+		t.Fatal("expected error from PG failure")
+	}
+	if !mc.deleteVersionCalled {
+		t.Error("expected DeleteModelVersion to be called for cleanup")
+	}
+	if mc.deleteRegisteredModelCalled {
+		t.Error("should NOT delete registered model that pre-existed in MLflow")
 	}
 }
 
