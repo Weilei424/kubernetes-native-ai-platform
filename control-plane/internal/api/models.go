@@ -125,6 +125,8 @@ func (h *modelsHandler) handlePromote(w http.ResponseWriter, r *http.Request) {
 	err = h.svc.Promote(r.Context(), name, versionNum, req.Alias, tenantID)
 	if err != nil {
 		switch {
+		case errors.Is(err, models.ErrInvalidAlias):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		case errors.Is(err, models.ErrModelNotFound), errors.Is(err, models.ErrVersionNotFound):
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		case errors.Is(err, models.ErrVersionArchived):
