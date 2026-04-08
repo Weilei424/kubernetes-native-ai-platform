@@ -74,14 +74,25 @@
 
 ### Phase 3 Execution Checklist — Serving Plane
 
-- [ ] Deployment API (`POST /deployments`, `GET /deployments/:id`)
-- [ ] Deployment metadata persistence (deployments, deployment_revisions tables)
-- [ ] Triton model repository layout preparation
-- [ ] Deployment controller (reconcile desired → actual serving state)
-- [ ] Endpoint and status tracking
-- [ ] Inference proxy or passthrough routing
-- [ ] Unit tests: deployment spec rendering
-- [ ] Integration tests: deployment creation flow
+- [ ] Migration 011: deployments table (tenant/project/model scoped, unique on tenant_id+name, status + serving_endpoint columns)
+- [ ] Migration 012: deployment_revisions table (FK to deployments + model_versions, revision_number)
+- [ ] Domain types (`internal/deployments/model.go`): Deployment, DeploymentRevision, CreateDeploymentRequest, UpdateStatusRequest, sentinel errors
+- [ ] State machine (`internal/deployments/statemachine.go`): ValidTransition function + unit tests
+- [ ] Deployment store (`internal/deployments/store.go`): Store interface + PostgresDeploymentStore (CreateDeployment atomic with revision 1, GetDeployment, UpdateDeploymentStatus, DeleteDeployment, ListPendingDeployments with JOIN for artifact_uri + model_name)
+- [ ] Deployment store integration tests (`internal/deployments/store_test.go`): real PostgreSQL via testutil
+- [ ] Deployment service (`internal/deployments/service.go`): ModelVersionReader interface, Create with production gate validation, Get (tenant scoped), Delete, UpdateStatus
+- [ ] Deployment service unit tests (`internal/deployments/service_test.go`): happy path, version-not-production, model-not-found, duplicate name, missing fields
+- [ ] Public API handlers (`internal/api/deployments.go`): DeploymentsService interface, POST /v1/deployments, GET /v1/deployments/:id, DELETE /v1/deployments/:id
+- [ ] API handler tests (`internal/api/deployments_test.go`): mock service, happy paths + error cases
+- [ ] Extend internal router (`internal/api/internal.go`): GET /internal/v1/deployments (list pending for operator), PATCH /internal/v1/deployments/:id/status (operator callback)
+- [ ] Router wiring (`internal/api/router.go`): add DeploymentsService param + deployment routes; update existing test call sites
+- [ ] main.go wiring: wire deploymentStore + deploymentsSvc; update NewInternalRouter call
+- [ ] Operator deployment reconciler (`operator/internal/reconciler/deployment_reconciler.go`): DeploymentReconciler implementing manager.Runnable, poll-based 10s tick, pod + ClusterIP service creation, MapPodPhase status mapping, reportStatus callback
+- [ ] Operator reconciler unit tests (`operator/internal/reconciler/deployment_reconciler_test.go`): MapPodPhase, TritonPodName, TritonServiceName, ServingEndpoint, DefaultPollInterval
+- [ ] Operator main.go: add clientgoscheme.AddToScheme + register DeploymentReconciler via mgr.Add
+- [ ] Init container (`infra/docker/model-loader/`): loader.py (MinIO download + Triton layout), Dockerfile (python:3.11-slim), requirements.txt (boto3)
+- [ ] Verify: `cd control-plane && go test ./... && go vet ./...` passes
+- [ ] Verify: `cd operator && go test ./... && go vet ./...` passes
 
 ---
 
