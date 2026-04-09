@@ -18,11 +18,13 @@ import (
 )
 
 type mockDeploymentsService struct {
-	createResult *deployments.Deployment
-	createErr    error
-	getResult    *deployments.Deployment
-	getErr       error
-	deleteErr    error
+	createResult   *deployments.Deployment
+	createErr      error
+	getResult      *deployments.Deployment
+	getErr         error
+	deleteErr      error
+	rollbackResult *deployments.Deployment
+	rollbackErr    error
 }
 
 func (m *mockDeploymentsService) Create(_ context.Context, _ string, _ deployments.CreateDeploymentRequest) (*deployments.Deployment, error) {
@@ -33,6 +35,9 @@ func (m *mockDeploymentsService) Get(_ context.Context, _, _ string) (*deploymen
 }
 func (m *mockDeploymentsService) Delete(_ context.Context, _, _ string) error {
 	return m.deleteErr
+}
+func (m *mockDeploymentsService) Rollback(_ context.Context, _, _ string, _ int) (*deployments.Deployment, error) {
+	return m.rollbackResult, m.rollbackErr
 }
 
 func setupDeploymentsAPITest(t *testing.T, svc api.DeploymentsService) (http.Handler, string) {
@@ -51,7 +56,7 @@ func setupDeploymentsAPITest(t *testing.T, svc api.DeploymentsService) (http.Han
 
 	store := jobs.NewPostgresJobStore(pool)
 	pub := &events.NoOpPublisher{}
-	handler := api.NewRouter(pool, store, pub, nil, svc)
+	handler := api.NewRouter(pool, store, pub, nil, svc, nil)
 	return handler, plaintext
 }
 
@@ -186,6 +191,69 @@ func TestDeploymentsAPI_Get_NotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestDeploymentsAPI_Rollback_HappyPath(t *testing.T) {
+	svc := &mockDeploymentsService{
+		rollbackResult: &deployments.Deployment{ID: "dep-1", Status: "pending"},
+	}
+	handler, token := setupDeploymentsAPITest(t, svc)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/deployments/dep-1/rollback", bytes.NewReader([]byte(`{"revision":1}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeploymentsAPI_Rollback_EmptyBody(t *testing.T) {
+	svc := &mockDeploymentsService{
+		rollbackResult: &deployments.Deployment{ID: "dep-1", Status: "pending"},
+	}
+	handler, token := setupDeploymentsAPITest(t, svc)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/deployments/dep-1/rollback", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeploymentsAPI_Rollback_NotFound(t *testing.T) {
+	svc := &mockDeploymentsService{rollbackErr: deployments.ErrDeploymentNotFound}
+	handler, token := setupDeploymentsAPITest(t, svc)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/deployments/dep-1/rollback", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeploymentsAPI_Rollback_InvalidRevision(t *testing.T) {
+	svc := &mockDeploymentsService{rollbackErr: deployments.ErrNoRevisionToRollback}
+	handler, token := setupDeploymentsAPITest(t, svc)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/deployments/dep-1/rollback", bytes.NewReader([]byte(`{"revision":0}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
