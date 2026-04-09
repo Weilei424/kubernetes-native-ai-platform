@@ -6,7 +6,8 @@ import "fmt"
 var validTransitions = map[string]map[string]bool{
 	"PENDING": {"QUEUED": true, "CANCELLED": true},
 	"QUEUED":  {"RUNNING": true, "FAILED": true, "CANCELLED": true},
-	"RUNNING": {"SUCCEEDED": true, "FAILED": true, "CANCELLED": true},
+	"RUNNING": {"SUCCEEDED": true, "FAILED": true, "CANCELLED": true, "QUEUED": true},
+	"FAILED":  {"QUEUED": true},
 }
 
 // ValidateTransition returns nil if transitioning from → to is allowed,
