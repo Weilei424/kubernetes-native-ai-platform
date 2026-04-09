@@ -104,6 +104,24 @@ func (h *internalHandler) handleUpdateDeploymentStatus(w http.ResponseWriter, r 
 		return
 	}
 
+	// Enforce the deployment state machine before writing to the store.
+	current, err := h.deploymentStore.GetDeployment(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, deployments.ErrDeploymentNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "deployment not found"})
+		} else {
+			slog.Error("internal: get deployment for transition", "id", id, "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		}
+		return
+	}
+	if !deployments.ValidTransition(current.Status, req.Status) {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "invalid status transition: " + current.Status + " → " + req.Status,
+		})
+		return
+	}
+
 	if err := h.deploymentStore.UpdateDeploymentStatus(r.Context(), id, req.Status, req.ServingEndpoint); err != nil {
 		if errors.Is(err, deployments.ErrDeploymentNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "deployment not found"})
