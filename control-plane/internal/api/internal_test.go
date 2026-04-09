@@ -25,7 +25,7 @@ func setupInternalTest(t *testing.T) (http.Handler, jobs.Store, string, string) 
 	pool.QueryRow(ctx, `INSERT INTO projects (tenant_id, name) VALUES ($1, 'int-proj') RETURNING id::text`, tenantID).Scan(&projectID)
 
 	store := jobs.NewPostgresJobStore(pool)
-	handler := api.NewInternalRouter(store, &events.NoOpPublisher{}, nil)
+	handler := api.NewInternalRouter(store, &events.NoOpPublisher{}, nil, nil)
 	return handler, store, tenantID, projectID
 }
 
@@ -61,10 +61,11 @@ func TestInternalStatus_QueuedToRunning(t *testing.T) {
 	}
 }
 
-func TestInternalStatus_QueuedToFailed(t *testing.T) {
+func TestInternalStatus_QueuedToFailed_AutoRetry(t *testing.T) {
 	handler, store, tenantID, projectID := setupInternalTest(t)
 	ctx := context.Background()
 
+	// max_retries defaults to 3, so after the first FAILED the job should be re-queued.
 	job := &jobs.TrainingJob{
 		TenantID: tenantID, ProjectID: projectID, Name: "queued-fail-job",
 		Status: "PENDING", Image: "img:1", Command: []string{"run"},
@@ -88,9 +89,13 @@ func TestInternalStatus_QueuedToFailed(t *testing.T) {
 		t.Fatalf("expected 200 for QUEUED→FAILED, got %d: %s", rec.Code, rec.Body.String())
 	}
 
+	// With max_retries=3 and retry_count now 1, the job should have been re-queued automatically.
 	got, _ := store.GetJob(ctx, job.ID, tenantID)
-	if got.Status != "FAILED" {
-		t.Fatalf("expected FAILED, got %q", got.Status)
+	if got.Status != "QUEUED" {
+		t.Fatalf("expected QUEUED (auto-retry), got %q", got.Status)
+	}
+	if got.RetryCount != 1 {
+		t.Fatalf("expected retry_count=1, got %d", got.RetryCount)
 	}
 }
 
@@ -131,6 +136,54 @@ func TestInternalStatus_SetsMLflowRunID(t *testing.T) {
 	}
 	if got.MLflowRunID == nil || *got.MLflowRunID != mlflowID {
 		t.Fatalf("expected mlflow_run_id %q, got %v", mlflowID, got.MLflowRunID)
+	}
+}
+
+func TestInternalStatus_RetryOnFailed(t *testing.T) {
+	handler, store, tenantID, projectID := setupInternalTest(t)
+	ctx := context.Background()
+
+	// Create a job and advance it to RUNNING.
+	job := &jobs.TrainingJob{
+		TenantID: tenantID, ProjectID: projectID, Name: "retry-job",
+		Status: "PENDING", Image: "img:1", Command: []string{"run"},
+		Args: []string{}, Env: map[string]string{},
+		NumWorkers: 1, WorkerCPU: "1", WorkerMemory: "1Gi",
+		HeadCPU: "1", HeadMemory: "1Gi",
+	}
+	run := &jobs.TrainingRun{TenantID: tenantID, Status: "PENDING"}
+	if err := store.CreateJobWithRun(ctx, job, run); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if err := store.TransitionJobStatus(ctx, job.ID, "PENDING", "QUEUED", nil); err != nil {
+		t.Fatalf("PENDING→QUEUED: %v", err)
+	}
+	if err := store.TransitionJobStatus(ctx, job.ID, "QUEUED", "RUNNING", nil); err != nil {
+		t.Fatalf("QUEUED→RUNNING: %v", err)
+	}
+
+	// Send FAILED — max_retries=3, so retry_count will be 1 which is ≤ 3 → re-queue.
+	reason := "oom killed"
+	body := map[string]interface{}{"status": "FAILED", "failure_reason": reason}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPatch, "/internal/v1/jobs/"+job.ID+"/status", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	got, err := store.GetJob(ctx, job.ID, tenantID)
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
+	if got.Status != "QUEUED" {
+		t.Fatalf("expected QUEUED (re-queued for retry), got %q", got.Status)
+	}
+	if got.RetryCount != 1 {
+		t.Fatalf("expected retry_count=1, got %d", got.RetryCount)
 	}
 }
 
