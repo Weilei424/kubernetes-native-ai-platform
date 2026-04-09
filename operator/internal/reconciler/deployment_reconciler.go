@@ -83,6 +83,11 @@ func (r *DeploymentReconciler) reconcileAll(ctx context.Context) {
 }
 
 func (r *DeploymentReconciler) reconcileOne(ctx context.Context, dep *deploymentRecord) error {
+	// Handle user-initiated deletion: clean up Kubernetes resources and mark deleted.
+	if dep.Status == "deleting" {
+		return r.reconcileDelete(ctx, dep)
+	}
+
 	podName := TritonPodName(dep.ID)
 	svcName := TritonServiceName(dep.ID)
 
@@ -126,6 +131,32 @@ func (r *DeploymentReconciler) reconcileOne(ctx context.Context, dep *deployment
 		endpoint = ServingEndpoint(dep.ID, dep.Namespace)
 	}
 	return r.reportStatus(ctx, dep.ID, newStatus, endpoint)
+}
+
+// reconcileDelete removes the Kubernetes Pod and Service for a deployment that
+// the user has requested to delete, then marks the deployment as "deleted".
+func (r *DeploymentReconciler) reconcileDelete(ctx context.Context, dep *deploymentRecord) error {
+	podKey := client.ObjectKey{Name: TritonPodName(dep.ID), Namespace: dep.Namespace}
+	pod := &corev1.Pod{}
+	if err := r.Client.Get(ctx, podKey, pod); err == nil {
+		if err := r.Client.Delete(ctx, pod); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("delete pod: %w", err)
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("get pod for deletion: %w", err)
+	}
+
+	svcKey := client.ObjectKey{Name: TritonServiceName(dep.ID), Namespace: dep.Namespace}
+	svc := &corev1.Service{}
+	if err := r.Client.Get(ctx, svcKey, svc); err == nil {
+		if err := r.Client.Delete(ctx, svc); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("delete service: %w", err)
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("get service for deletion: %w", err)
+	}
+
+	return r.reportStatus(ctx, dep.ID, "deleted", "")
 }
 
 func (r *DeploymentReconciler) buildPod(dep *deploymentRecord) *corev1.Pod {
