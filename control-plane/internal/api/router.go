@@ -16,16 +16,18 @@ import (
 )
 
 // NewRouter builds and returns the chi router with all middleware and routes attached.
-// modelsSvc and deploymentsSvc may be nil; their routes are only registered when non-nil.
-func NewRouter(db *pgxpool.Pool, store jobs.Store, publisher events.Publisher, modelsSvc ModelsService, deploymentsSvc DeploymentsService) http.Handler {
+// modelsSvc, deploymentsSvc, and eventStore may be nil; their routes are only registered when non-nil.
+func NewRouter(db *pgxpool.Pool, store jobs.Store, publisher events.Publisher, modelsSvc ModelsService, deploymentsSvc DeploymentsService, eventStore *events.EventStore) http.Handler {
 	r := chi.NewRouter()
 
 	r.Get("/healthz", LivenessHandler)
 	r.Get("/readyz", ReadinessHandler(db))
+	r.Handle("/metrics", observability.MetricsHandler())
 
 	logger := slog.Default()
 
 	jh := &jobsHandler{store: store, publisher: publisher}
+	qh := &quotaHandler{store: store}
 
 	var mh *modelsHandler
 	if modelsSvc != nil {
@@ -40,7 +42,10 @@ func NewRouter(db *pgxpool.Pool, store jobs.Store, publisher events.Publisher, m
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.RequestID)
 		r.Use(observability.RequestLogger(logger))
+		r.Use(observability.PrometheusMiddleware)
 		r.Use(auth.TokenAuth(auth.NewPostgresTokenStore(db)))
+
+		r.Get("/v1/quota", qh.handleGet)
 
 		r.Post("/v1/jobs", jh.handleSubmitJob)
 		r.Get("/v1/jobs", jh.handleListJobs)
@@ -59,6 +64,12 @@ func NewRouter(db *pgxpool.Pool, store jobs.Store, publisher events.Publisher, m
 			r.Post("/v1/deployments", dh.handleCreate)
 			r.Get("/v1/deployments/{id}", dh.handleGet)
 			r.Delete("/v1/deployments/{id}", dh.handleDelete)
+			r.Post("/v1/deployments/{id}/rollback", dh.handleRollback)
+		}
+
+		if eventStore != nil {
+			eh := &eventsHandler{store: eventStore}
+			r.Get("/v1/events", eh.handleList)
 		}
 	})
 
