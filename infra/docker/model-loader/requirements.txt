@@ -1,0 +1,2 @@
+# infra/docker/model-loader/requirements.txt
+boto3==1.34.0
