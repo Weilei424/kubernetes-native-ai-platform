@@ -17,8 +17,9 @@ var validTransitions = map[string]map[string]bool{
 		"deleting": true,
 	},
 	"running": {
-		"failed":   true,
-		"deleting": true,
+		"provisioning": true, // pod was lost (eviction, node failure); reconciler recreates and re-provisions
+		"failed":       true,
+		"deleting":     true,
 	},
 	"failed": {
 		"deleting": true,
