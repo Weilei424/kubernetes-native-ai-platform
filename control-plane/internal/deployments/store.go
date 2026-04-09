@@ -28,6 +28,15 @@ type Store interface {
 	// ListPendingDeployments returns all deployments with status "pending" or "provisioning",
 	// enriched with artifact_uri and model_name via JOIN for operator consumption.
 	ListPendingDeployments(ctx context.Context) ([]*Deployment, error)
+	// GetCurrentRevisionNumber returns the highest revision_number for the given deployment.
+	GetCurrentRevisionNumber(ctx context.Context, deploymentID string) (int, error)
+	// GetRevision returns a specific revision for a deployment.
+	// Returns ErrDeploymentNotFound if the revision does not exist.
+	GetRevision(ctx context.Context, deploymentID string, revisionNumber int) (*DeploymentRevision, error)
+	// RollbackDeployment atomically creates revision N+1 mirroring targetModelVersionID,
+	// updates the deployment's model_version_id to targetModelVersionID, sets status to
+	// 'pending', and clears serving_endpoint.
+	RollbackDeployment(ctx context.Context, deploymentID, targetModelVersionID string) (*Deployment, error)
 }
 
 // PostgresDeploymentStore implements Store against PostgreSQL.
@@ -134,6 +143,78 @@ func (s *PostgresDeploymentStore) DeleteDeployment(ctx context.Context, id strin
 		return ErrDeploymentNotFound
 	}
 	return nil
+}
+
+func (s *PostgresDeploymentStore) GetCurrentRevisionNumber(ctx context.Context, deploymentID string) (int, error) {
+	var n int
+	err := s.db.QueryRow(ctx,
+		`SELECT COALESCE(MAX(revision_number), 0) FROM deployment_revisions WHERE deployment_id = $1::uuid`,
+		deploymentID,
+	).Scan(&n)
+	return n, err
+}
+
+func (s *PostgresDeploymentStore) GetRevision(ctx context.Context, deploymentID string, revisionNumber int) (*DeploymentRevision, error) {
+	var rev DeploymentRevision
+	err := s.db.QueryRow(ctx, `
+		SELECT id::text, deployment_id::text, revision_number, model_version_id::text, status, created_at
+		FROM deployment_revisions
+		WHERE deployment_id = $1::uuid AND revision_number = $2`,
+		deploymentID, revisionNumber,
+	).Scan(&rev.ID, &rev.DeploymentID, &rev.RevisionNumber, &rev.ModelVersionID, &rev.Status, &rev.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrDeploymentNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get revision: %w", err)
+	}
+	return &rev, nil
+}
+
+func (s *PostgresDeploymentStore) RollbackDeployment(ctx context.Context, deploymentID, targetModelVersionID string) (*Deployment, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var nextRev int
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(MAX(revision_number), 0) + 1 FROM deployment_revisions WHERE deployment_id = $1::uuid`,
+		deploymentID,
+	).Scan(&nextRev); err != nil {
+		return nil, fmt.Errorf("get next revision: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO deployment_revisions (deployment_id, revision_number, model_version_id, status)
+		VALUES ($1::uuid, $2, $3::uuid, 'active')`,
+		deploymentID, nextRev, targetModelVersionID,
+	); err != nil {
+		return nil, fmt.Errorf("insert rollback revision: %w", err)
+	}
+
+	var d Deployment
+	if err := tx.QueryRow(ctx, `
+		UPDATE deployments
+		SET model_version_id = $1::uuid, status = 'pending', serving_endpoint = NULL, updated_at = now()
+		WHERE id = $2::uuid
+		RETURNING id::text, tenant_id::text, project_id::text, model_record_id::text,
+		          model_version_id::text, name, namespace, status, desired_replicas,
+		          COALESCE(serving_endpoint, ''), created_at, updated_at`,
+		targetModelVersionID, deploymentID,
+	).Scan(
+		&d.ID, &d.TenantID, &d.ProjectID, &d.ModelRecordID,
+		&d.ModelVersionID, &d.Name, &d.Namespace, &d.Status, &d.DesiredReplicas,
+		&d.ServingEndpoint, &d.CreatedAt, &d.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrDeploymentNotFound
+		}
+		return nil, fmt.Errorf("update deployment for rollback: %w", err)
+	}
+
+	return &d, tx.Commit(ctx)
 }
 
 func (s *PostgresDeploymentStore) ListPendingDeployments(ctx context.Context) ([]*Deployment, error) {
