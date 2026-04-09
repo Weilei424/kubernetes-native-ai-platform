@@ -206,15 +206,15 @@ func TestDeploymentStore_DeleteDeployment(t *testing.T) {
 	if err := store.DeleteDeployment(ctx, d.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	// Verify status is now deleted.
+	// Verify status is now "deleting" (operator will transition to "deleted" after K8s cleanup).
 	got, err := store.GetDeployment(ctx, d.ID)
 	if err != nil {
 		t.Fatalf("get after delete: %v", err)
 	}
-	if got.Status != "deleted" {
-		t.Errorf("expected status deleted, got %q", got.Status)
+	if got.Status != "deleting" {
+		t.Errorf("expected status deleting, got %q", got.Status)
 	}
-	// Second delete on already-deleted returns ErrDeploymentNotFound.
+	// Second delete on already-deleting returns ErrDeploymentNotFound (idempotent guard).
 	if err := store.DeleteDeployment(ctx, d.ID); !errors.Is(err, deployments.ErrDeploymentNotFound) {
 		t.Fatalf("expected ErrDeploymentNotFound on second delete, got %v", err)
 	}
