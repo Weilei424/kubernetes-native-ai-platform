@@ -35,6 +35,15 @@ The v1 scheduler handles admission, quota, per-tenant fair scheduling, and place
 
 Per-tenant fair scheduling: the dispatcher promotes the oldest PENDING job per tenant per tick. Tenant ordering within a tick is non-deterministic; this is intentional — fairness across tenants is preferred over strict global FIFO.
 
+### Deployment state machine uses two-phase delete
+The deployment lifecycle follows: `pending → provisioning → running` (or `failed`). The `running → provisioning` transition is valid for pod-loss recovery (eviction, node failure). Deletion is two-phase: the user-facing DELETE sets status to `deleting`; the operator cleans up the Kubernetes Pod and Service, then transitions to `deleted`. This prevents the control plane from reporting `deleted` while Triton resources are still serving traffic.
+
+### Model artifacts use object-store URIs, not MLflow run URIs
+When registering a model version, MLflow returns both a `source` (e.g. `runs:/runID/path`) and a `storage_location` (e.g. `mlflow-artifacts:/bucket/...` or `s3://...`). The platform stores `storage_location` as the canonical artifact URI. This is what the model-loader init container can resolve directly against MinIO/S3 — `runs:/` URIs require an extra MLflow API call to resolve and are not supported by the loader.
+
+### Model packaging uses an init container, not a sidecar or pre-baked image
+The model-loader runs as a Kubernetes init container on each Triton pod. It downloads the ONNX artifact from MinIO using the stored `artifact_uri` and writes the Triton model repository layout before the Triton container starts. This avoids baking model weights into images and decouples artifact retrieval from serving.
+
 ### Auth is token-based in v1
 Simple token-based auth is sufficient. Do not overbuild auth before the core lifecycle is working.
 

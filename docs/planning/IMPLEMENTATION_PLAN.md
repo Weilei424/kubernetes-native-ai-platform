@@ -81,7 +81,7 @@ Development follows a CPU-first local approach before cloud and GPU enhancements
 **Goal:** Deploy promoted models to Triton Inference Server through a platform-managed deployment API and controller.
 
 **Deliverables:**
-- Deployment API (`POST /v1/deployments`, `GET /v1/deployments/:id`)
+- Deployment API (`POST /v1/deployments`, `GET /v1/deployments/:id`, `DELETE /v1/deployments/:id`)
 - deployments and deployment_revisions tables in PostgreSQL
 - Triton model repository layout preparation (ONNX model bundle packaging)
 - Deployment controller: reconciles desired serving state in Kubernetes
