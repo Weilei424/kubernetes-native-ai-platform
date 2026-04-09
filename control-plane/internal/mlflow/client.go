@@ -149,8 +149,9 @@ func (c *HTTPClient) CreateModelVersion(ctx context.Context, modelName, sourceUR
 	}
 	var resp struct {
 		ModelVersion struct {
-			Version string `json:"version"`
-			Source  string `json:"source"`
+			Version         string `json:"version"`
+			Source          string `json:"source"`
+			StorageLocation string `json:"storage_location"` // resolved object-store path (e.g. s3:// or mlflow-artifacts:/)
 		} `json:"model_version"`
 	}
 	if err := c.doJSON(ctx, http.MethodPost, "/api/2.0/mlflow/model-versions/create", reqBody, &resp); err != nil {
@@ -160,7 +161,12 @@ func (c *HTTPClient) CreateModelVersion(ctx context.Context, modelName, sourceUR
 	if err != nil {
 		return 0, "", fmt.Errorf("parse version number %q: %w", resp.ModelVersion.Version, err)
 	}
-	return vNum, resp.ModelVersion.Source, nil
+	// Prefer storage_location (actual object-store path) over source (which may be runs:/ URIs).
+	artifactURI := resp.ModelVersion.StorageLocation
+	if artifactURI == "" {
+		artifactURI = resp.ModelVersion.Source
+	}
+	return vNum, artifactURI, nil
 }
 
 func (c *HTTPClient) DeleteModelVersion(ctx context.Context, modelName string, version int) error {
