@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -19,6 +20,7 @@ type DeploymentsService interface {
 	Create(ctx context.Context, tenantID string, req deployments.CreateDeploymentRequest) (*deployments.Deployment, error)
 	Get(ctx context.Context, id, tenantID string) (*deployments.Deployment, error)
 	Delete(ctx context.Context, id, tenantID string) error
+	Rollback(ctx context.Context, id, tenantID string, revision int) (*deployments.Deployment, error)
 }
 
 type deploymentsHandler struct {
@@ -91,4 +93,32 @@ func (h *deploymentsHandler) handleDelete(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleting"})
+}
+
+func (h *deploymentsHandler) handleRollback(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDFromContext(r.Context())
+	id := chi.URLParam(r, "id")
+
+	var req deployments.RollbackRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+
+	dep, err := h.svc.Rollback(r.Context(), id, tenantID, req.Revision)
+	if err != nil {
+		switch {
+		case errors.Is(err, deployments.ErrDeploymentNotFound):
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "deployment not found"})
+		case errors.Is(err, deployments.ErrRevisionNotFound):
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "revision not found"})
+		case errors.Is(err, deployments.ErrNoRevisionToRollback):
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+		default:
+			slog.Error("rollback deployment", "id", id, "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"deployment": dep})
 }
