@@ -2,10 +2,13 @@
 package observability
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"strings"
 )
+
+type contextKey struct{}
 
 // NewLogger returns a JSON slog.Logger at the requested level.
 // level is case-insensitive: "debug", "info", "warn", "error". Defaults to info.
@@ -22,4 +25,17 @@ func NewLogger(level string) *slog.Logger {
 		l = slog.LevelInfo
 	}
 	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: l}))
+}
+
+// WithLogger returns a new context carrying the given logger.
+func WithLogger(ctx context.Context, logger *slog.Logger) context.Context {
+	return context.WithValue(ctx, contextKey{}, logger)
+}
+
+// FromContext returns the logger stored in ctx, or slog.Default() if none.
+func FromContext(ctx context.Context) *slog.Logger {
+	if l, ok := ctx.Value(contextKey{}).(*slog.Logger); ok && l != nil {
+		return l
+	}
+	return slog.Default()
 }
