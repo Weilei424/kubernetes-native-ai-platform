@@ -31,11 +31,17 @@ func TestValidTransition_RunningToFailed(t *testing.T) {
 	}
 }
 
-func TestValidTransition_AnyToDeleted(t *testing.T) {
+func TestValidTransition_AnyToDeleting(t *testing.T) {
 	for _, from := range []string{"pending", "provisioning", "running", "failed"} {
-		if !deployments.ValidTransition(from, "deleted") {
-			t.Fatalf("%s → deleted must be valid", from)
+		if !deployments.ValidTransition(from, "deleting") {
+			t.Fatalf("%s → deleting must be valid", from)
 		}
+	}
+}
+
+func TestValidTransition_DeletingToDeleted(t *testing.T) {
+	if !deployments.ValidTransition("deleting", "deleted") {
+		t.Fatal("deleting → deleted must be valid")
 	}
 }
 
@@ -51,5 +57,12 @@ func TestValidTransition_Invalid(t *testing.T) {
 	}
 	if deployments.ValidTransition("deleted", "running") {
 		t.Fatal("deleted → running must be invalid")
+	}
+	// Direct any→deleted is no longer valid; must go through deleting.
+	if deployments.ValidTransition("running", "deleted") {
+		t.Fatal("running → deleted must be invalid (must go through deleting)")
+	}
+	if deployments.ValidTransition("pending", "deleted") {
+		t.Fatal("pending → deleted must be invalid (must go through deleting)")
 	}
 }
