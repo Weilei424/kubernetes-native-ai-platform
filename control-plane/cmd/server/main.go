@@ -78,8 +78,9 @@ func main() {
 	if internalPort == "" {
 		internalPort = "8081"
 	}
+	eventStore := events.NewEventStore(pool)
 	deploymentStore := deployments.NewPostgresDeploymentStore(pool)
-	internalHandler := api.NewInternalRouter(store, publisher, deploymentStore)
+	internalHandler := api.NewInternalRouter(store, publisher, deploymentStore, eventStore)
 	go func() {
 		slog.Info("internal server starting", "port", internalPort)
 		if err := http.ListenAndServe(fmt.Sprintf(":%s", internalPort), internalHandler); err != nil {
@@ -103,7 +104,7 @@ func main() {
 		port = "8080"
 	}
 	deploymentsSvc := deployments.NewService(deploymentStore, modelStore)
-	r := api.NewRouter(pool, store, publisher, modelsSvc, deploymentsSvc)
+	r := api.NewRouter(pool, store, publisher, modelsSvc, deploymentsSvc, eventStore)
 	slog.Info("server starting", "port", port)
 	if err := http.ListenAndServe(fmt.Sprintf(":%s", port), r); err != nil {
 		slog.Error("server stopped", "error", err)
