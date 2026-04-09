@@ -13,6 +13,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/events"
+	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/observability"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/scheduler"
 )
 
@@ -61,6 +62,14 @@ func (d *Dispatcher) tick(ctx context.Context) {
 	}
 	for _, tenantID := range tenantIDs {
 		d.promoteOldestPending(ctx, tenantID)
+	}
+
+	// Update queue depth metric.
+	depth, err := d.store.CountQueuedJobs(ctx)
+	if err != nil {
+		slog.Warn("dispatcher: count queued jobs for metric", "error", err)
+	} else {
+		observability.JobQueueDepth.Set(float64(depth))
 	}
 }
 
