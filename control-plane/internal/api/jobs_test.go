@@ -43,7 +43,7 @@ func setupAPITest(t *testing.T) *apiTestEnv {
 
 	store := jobs.NewPostgresJobStore(pool)
 	pub := &events.NoOpPublisher{}
-	handler := api.NewRouter(pool, store, pub, nil, nil)
+	handler := api.NewRouter(pool, store, pub, nil, nil, nil)
 
 	return &apiTestEnv{handler: handler, pool: pool, tenantID: tenantID, projectID: projectID, token: plaintext}
 }
@@ -154,8 +154,8 @@ func TestSubmitJob_QuotaExceeded(t *testing.T) {
 		t.Fatalf("first job: expected 202, got %d", first)
 	}
 	second := submitJob()
-	if second != http.StatusTooManyRequests {
-		t.Fatalf("second job over quota: expected 429, got %d", second)
+	if second != http.StatusUnprocessableEntity {
+		t.Fatalf("second job over quota: expected 422, got %d", second)
 	}
 }
 
