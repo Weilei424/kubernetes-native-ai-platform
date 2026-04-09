@@ -104,3 +104,38 @@ func (s *Service) Delete(ctx context.Context, id, tenantID string) error {
 func (s *Service) UpdateStatus(ctx context.Context, id, status, endpoint string) error {
 	return s.store.UpdateDeploymentStatus(ctx, id, status, endpoint)
 }
+
+// Rollback rolls a deployment back to a specific revision (or the previous one if revision == 0).
+// Creates a new revision that mirrors the target and sets the deployment to pending.
+func (s *Service) Rollback(ctx context.Context, id, tenantID string, revision int) (*Deployment, error) {
+	d, err := s.store.GetDeployment(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if d.TenantID != tenantID {
+		return nil, ErrDeploymentNotFound
+	}
+
+	current, err := s.store.GetCurrentRevisionNumber(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get current revision: %w", err)
+	}
+
+	target := revision
+	if target == 0 {
+		target = current - 1
+	}
+	if target < 1 {
+		return nil, ErrNoRevisionToRollback
+	}
+
+	targetRev, err := s.store.GetRevision(ctx, id, target)
+	if errors.Is(err, ErrDeploymentNotFound) {
+		return nil, ErrRevisionNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get target revision %d: %w", target, err)
+	}
+
+	return s.store.RollbackDeployment(ctx, id, targetRev.ModelVersionID)
+}
