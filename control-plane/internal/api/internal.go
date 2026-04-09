@@ -13,14 +13,15 @@ import (
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/deployments"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/events"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/jobs"
+	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/observability"
 )
 
 // NewInternalRouter builds the internal-only HTTP handler for operator callbacks.
 // This router has no auth middleware — it must be bound to an internal-only port.
-// deploymentStore may be nil; deployment routes are only registered when non-nil.
-func NewInternalRouter(store jobs.Store, publisher events.Publisher, deploymentStore deployments.Store) http.Handler {
+// deploymentStore and eventStore may be nil; their features are only active when non-nil.
+func NewInternalRouter(store jobs.Store, publisher events.Publisher, deploymentStore deployments.Store, eventStore *events.EventStore) http.Handler {
 	r := chi.NewRouter()
-	h := &internalHandler{store: store, publisher: publisher, deploymentStore: deploymentStore}
+	h := &internalHandler{store: store, publisher: publisher, deploymentStore: deploymentStore, eventStore: eventStore}
 	r.Patch("/internal/v1/jobs/{id}/status", h.handleUpdateJobStatus)
 	if deploymentStore != nil {
 		r.Get("/internal/v1/deployments", h.handleListPendingDeployments)
@@ -33,6 +34,7 @@ type internalHandler struct {
 	store           jobs.Store
 	publisher       events.Publisher
 	deploymentStore deployments.Store
+	eventStore      *events.EventStore
 }
 
 func (h *internalHandler) handleUpdateJobStatus(w http.ResponseWriter, r *http.Request) {
@@ -57,9 +59,41 @@ func (h *internalHandler) handleUpdateJobStatus(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	if h.eventStore != nil {
+		payload, _ := json.Marshal(map[string]any{
+			"from":           job.Status,
+			"to":             req.Status,
+			"failure_reason": req.FailureReason,
+			"timestamp":      time.Now().UTC().Format(time.RFC3339),
+		})
+		if err := h.eventStore.WriteEvent(r.Context(), events.PlatformEvent{
+			TenantID: job.TenantID, EntityType: "job", EntityID: jobID,
+			EventType: req.Status, Payload: payload,
+		}); err != nil {
+			slog.Warn("internal: write job event", "job_id", jobID, "error", err)
+		}
+	}
+
 	if req.MLflowRunID != nil {
 		if err := h.store.SetMLflowRunID(r.Context(), jobID, *req.MLflowRunID); err != nil {
 			slog.Warn("internal: set mlflow run id", "job_id", jobID, "error", err)
+		}
+	}
+
+	// After a successful FAILED transition, check if we should automatically retry.
+	if req.Status == "FAILED" {
+		newCount, incErr := h.store.IncrementRetryCount(r.Context(), jobID)
+		if incErr != nil {
+			slog.Warn("internal: increment retry count", "job_id", jobID, "error", incErr)
+		} else if newCount <= job.MaxRetries {
+			if _, runErr := h.store.CreateRetryRun(r.Context(), jobID, job.TenantID); runErr != nil {
+				slog.Error("internal: create retry run", "job_id", jobID, "error", runErr)
+			} else if transErr := h.store.TransitionJobStatus(r.Context(), jobID, "FAILED", "QUEUED", nil); transErr != nil {
+				slog.Error("internal: re-queue job for retry", "job_id", jobID, "error", transErr)
+			} else {
+				observability.TrainingRunRetries.Inc()
+				slog.Info("internal: job re-queued for retry", "job_id", jobID, "retry_count", newCount)
+			}
 		}
 	}
 
@@ -130,6 +164,20 @@ func (h *internalHandler) handleUpdateDeploymentStatus(w http.ResponseWriter, r 
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		}
 		return
+	}
+
+	if h.eventStore != nil {
+		payload, _ := json.Marshal(map[string]any{
+			"from":      current.Status,
+			"to":        req.Status,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		})
+		if err := h.eventStore.WriteEvent(r.Context(), events.PlatformEvent{
+			TenantID: current.TenantID, EntityType: "deployment", EntityID: id,
+			EventType: req.Status, Payload: payload,
+		}); err != nil {
+			slog.Warn("internal: write deployment event", "deployment_id", id, "error", err)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": req.Status})
