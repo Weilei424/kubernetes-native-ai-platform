@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/api"
+	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/deployments"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/events"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/jobs"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/k8s"
@@ -77,7 +78,8 @@ func main() {
 	if internalPort == "" {
 		internalPort = "8081"
 	}
-	internalHandler := api.NewInternalRouter(store, publisher)
+	deploymentStore := deployments.NewPostgresDeploymentStore(pool)
+	internalHandler := api.NewInternalRouter(store, publisher, deploymentStore)
 	go func() {
 		slog.Info("internal server starting", "port", internalPort)
 		if err := http.ListenAndServe(fmt.Sprintf(":%s", internalPort), internalHandler); err != nil {
@@ -100,7 +102,8 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	r := api.NewRouter(pool, store, publisher, modelsSvc)
+	deploymentsSvc := deployments.NewService(deploymentStore, modelStore)
+	r := api.NewRouter(pool, store, publisher, modelsSvc, deploymentsSvc)
 	slog.Info("server starting", "port", port)
 	if err := http.ListenAndServe(fmt.Sprintf(":%s", port), r); err != nil {
 		slog.Error("server stopped", "error", err)
