@@ -37,6 +37,10 @@ func (h *deploymentsHandler) handleCreate(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "model_name, name, and model_version are required"})
 		return
 	}
+	if req.Replicas > 1 {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "replicas > 1 is not supported in Phase 3; use replicas=1"})
+		return
+	}
 
 	dep, err := h.svc.Create(r.Context(), tenantID, req)
 	if err != nil {
