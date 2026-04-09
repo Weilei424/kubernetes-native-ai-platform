@@ -78,9 +78,10 @@ func TestCreateModelVersion_Success(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"model_version": map[string]string{
-				"name":    "tenant1-resnet50",
-				"version": "3",
-				"source":  "runs:/abc123/model/",
+				"name":             "tenant1-resnet50",
+				"version":          "3",
+				"source":           "runs:/abc123/model/",
+				"storage_location": "mlflow-artifacts:/mlflow-bucket/abc123/artifacts/model/",
 			},
 		})
 	}))
@@ -94,7 +95,8 @@ func TestCreateModelVersion_Success(t *testing.T) {
 	if vNum != 3 {
 		t.Errorf("expected version 3, got %d", vNum)
 	}
-	if artifactURI != "runs:/abc123/model/" {
+	// storage_location should be preferred over source
+	if artifactURI != "mlflow-artifacts:/mlflow-bucket/abc123/artifacts/model/" {
 		t.Errorf("unexpected artifact URI: %s", artifactURI)
 	}
 }
