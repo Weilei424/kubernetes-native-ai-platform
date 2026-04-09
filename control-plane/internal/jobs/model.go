@@ -26,6 +26,8 @@ type TrainingJob struct {
 	HeadCPU      string
 	HeadMemory   string
 	RayJobName   *string
+	RetryCount   int
+	MaxRetries   int
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
