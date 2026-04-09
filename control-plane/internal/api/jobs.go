@@ -12,6 +12,7 @@ import (
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/auth"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/events"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/jobs"
+	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/observability"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/scheduler"
 )
 
@@ -50,6 +51,7 @@ func (h *jobsHandler) handleSubmitJob(w http.ResponseWriter, r *http.Request) {
 		HeadMemory:   req.Resources.HeadMemory,
 	}
 	if err := scheduler.Admit(admReq); err != nil {
+		observability.JobAdmissionFailures.WithLabelValues("invalid_spec").Inc()
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 		return
 	}
@@ -84,7 +86,8 @@ func (h *jobsHandler) handleSubmitJob(w http.ResponseWriter, r *http.Request) {
 		},
 	)
 	if quotaErr != nil {
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": quotaErr.Error()})
+		observability.JobAdmissionFailures.WithLabelValues("quota_exceeded").Inc()
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": quotaErr.Error()})
 		return
 	}
 
