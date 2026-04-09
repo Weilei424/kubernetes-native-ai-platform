@@ -13,6 +13,8 @@ var (
 	ErrDuplicateDeploymentName   = errors.New("a deployment with this name already exists for this tenant")
 	ErrModelNotFound             = errors.New("model not found")
 	ErrVersionNotFound           = errors.New("model version not found")
+	ErrRevisionNotFound          = errors.New("revision not found")
+	ErrNoRevisionToRollback      = errors.New("already at revision 1, nothing to roll back to")
 )
 
 // Deployment is the platform's representation of a model serving deployment.
@@ -58,4 +60,10 @@ type CreateDeploymentRequest struct {
 type UpdateStatusRequest struct {
 	Status          string `json:"status"`
 	ServingEndpoint string `json:"serving_endpoint,omitempty"`
+}
+
+// RollbackRequest is the body for POST /v1/deployments/:id/rollback.
+// Revision is optional; 0 means "roll back to the previous revision".
+type RollbackRequest struct {
+	Revision int `json:"revision"`
 }
