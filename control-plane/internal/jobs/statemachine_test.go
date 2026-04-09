@@ -17,6 +17,8 @@ func TestValidateTransition_ValidPaths(t *testing.T) {
 		{"RUNNING", "SUCCEEDED"},
 		{"RUNNING", "FAILED"},
 		{"RUNNING", "CANCELLED"},
+		{"RUNNING", "QUEUED"},
+		{"FAILED", "QUEUED"},
 	}
 	for _, c := range cases {
 		if err := jobs.ValidateTransition(c.from, c.to); err != nil {
@@ -32,7 +34,6 @@ func TestValidateTransition_InvalidPaths(t *testing.T) {
 		{"PENDING", "FAILED"},
 		{"QUEUED", "SUCCEEDED"},
 		{"RUNNING", "PENDING"},
-		{"RUNNING", "QUEUED"},
 		{"SUCCEEDED", "RUNNING"},
 		{"SUCCEEDED", "FAILED"},
 		{"FAILED", "RUNNING"},
