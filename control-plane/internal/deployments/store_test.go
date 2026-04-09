@@ -227,3 +227,70 @@ func TestDeploymentStore_UpdateStatus_NotFound(t *testing.T) {
 		t.Fatalf("expected ErrDeploymentNotFound, got %v", err)
 	}
 }
+
+func TestStore_RollbackDeployment(t *testing.T) {
+	store, tenantID, projectID, recID, verID := setupDeploymentStoreTest(t)
+	ctx := context.Background()
+
+	// Create the deployment (revision 1 is inserted automatically).
+	d := &deployments.Deployment{
+		TenantID:        tenantID,
+		ProjectID:       projectID,
+		ModelRecordID:   recID,
+		ModelVersionID:  verID,
+		Name:            "rollback-dep",
+		Namespace:       "default",
+		Status:          "running",
+		DesiredReplicas: 1,
+	}
+	if err := store.CreateDeployment(ctx, d); err != nil {
+		t.Fatalf("create deployment: %v", err)
+	}
+
+	// Confirm revision 1 exists and current revision is 1.
+	rev1, err := store.GetCurrentRevisionNumber(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("get current revision number: %v", err)
+	}
+	if rev1 != 1 {
+		t.Fatalf("expected revision 1 after create, got %d", rev1)
+	}
+
+	// Rollback using the same model version (simulates reverting to rev 1 from rev 1+).
+	rolled, err := store.RollbackDeployment(ctx, d.ID, verID)
+	if err != nil {
+		t.Fatalf("rollback deployment: %v", err)
+	}
+
+	// The returned deployment must be pending and have the target model version.
+	if rolled.Status != "pending" {
+		t.Errorf("expected status pending after rollback, got %q", rolled.Status)
+	}
+	if rolled.ModelVersionID != verID {
+		t.Errorf("expected model version %q, got %q", verID, rolled.ModelVersionID)
+	}
+	if rolled.ServingEndpoint != "" {
+		t.Errorf("expected serving_endpoint to be cleared, got %q", rolled.ServingEndpoint)
+	}
+
+	// A new revision (2) must now exist.
+	rev2, err := store.GetCurrentRevisionNumber(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("get current revision number after rollback: %v", err)
+	}
+	if rev2 != 2 {
+		t.Fatalf("expected revision 2 after rollback, got %d", rev2)
+	}
+
+	// GetRevision must return revision 2.
+	revRecord, err := store.GetRevision(ctx, d.ID, 2)
+	if err != nil {
+		t.Fatalf("get revision 2: %v", err)
+	}
+	if revRecord.RevisionNumber != 2 {
+		t.Errorf("expected revision_number 2, got %d", revRecord.RevisionNumber)
+	}
+	if revRecord.ModelVersionID != verID {
+		t.Errorf("expected model_version_id %q, got %q", verID, revRecord.ModelVersionID)
+	}
+}
