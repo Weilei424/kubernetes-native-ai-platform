@@ -120,9 +120,11 @@ func (s *PostgresDeploymentStore) UpdateDeploymentStatus(ctx context.Context, id
 }
 
 func (s *PostgresDeploymentStore) DeleteDeployment(ctx context.Context, id string) error {
+	// Sets status to "deleting" so the operator can clean up Kubernetes resources
+	// before the final "deleted" transition.
 	tag, err := s.db.Exec(ctx, `
-		UPDATE deployments SET status = 'deleted', updated_at = now()
-		WHERE id = $1::uuid AND status != 'deleted'`,
+		UPDATE deployments SET status = 'deleting', updated_at = now()
+		WHERE id = $1::uuid AND status NOT IN ('deleting', 'deleted')`,
 		id,
 	)
 	if err != nil {
@@ -144,7 +146,7 @@ func (s *PostgresDeploymentStore) ListPendingDeployments(ctx context.Context) ([
 		FROM deployments d
 		JOIN model_versions mv ON mv.id = d.model_version_id
 		JOIN model_records  mr ON mr.id = d.model_record_id
-		WHERE d.status IN ('pending', 'provisioning')`)
+		WHERE d.status IN ('pending', 'provisioning', 'running', 'deleting')`)
 	if err != nil {
 		return nil, fmt.Errorf("list pending deployments: %w", err)
 	}
