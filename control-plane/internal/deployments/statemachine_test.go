@@ -31,6 +31,12 @@ func TestValidTransition_RunningToFailed(t *testing.T) {
 	}
 }
 
+func TestValidTransition_RunningToProvisioning(t *testing.T) {
+	if !deployments.ValidTransition("running", "provisioning") {
+		t.Fatal("running → provisioning must be valid (pod eviction/recovery path)")
+	}
+}
+
 func TestValidTransition_AnyToDeleting(t *testing.T) {
 	for _, from := range []string{"pending", "provisioning", "running", "failed"} {
 		if !deployments.ValidTransition(from, "deleting") {
@@ -48,9 +54,6 @@ func TestValidTransition_DeletingToDeleted(t *testing.T) {
 func TestValidTransition_Invalid(t *testing.T) {
 	if deployments.ValidTransition("running", "pending") {
 		t.Fatal("running → pending must be invalid")
-	}
-	if deployments.ValidTransition("running", "provisioning") {
-		t.Fatal("running → provisioning must be invalid")
 	}
 	if deployments.ValidTransition("failed", "running") {
 		t.Fatal("failed → running must be invalid")
