@@ -43,7 +43,7 @@ func setupAPITest(t *testing.T) *apiTestEnv {
 
 	store := jobs.NewPostgresJobStore(pool)
 	pub := &events.NoOpPublisher{}
-	handler := api.NewRouter(pool, store, pub, nil)
+	handler := api.NewRouter(pool, store, pub, nil, nil)
 
 	return &apiTestEnv{handler: handler, pool: pool, tenantID: tenantID, projectID: projectID, token: plaintext}
 }

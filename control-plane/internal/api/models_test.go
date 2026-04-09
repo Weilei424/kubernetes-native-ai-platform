@@ -64,7 +64,7 @@ func setupModelsAPITest(t *testing.T, svc api.ModelsService) (http.Handler, stri
 
 	store := jobs.NewPostgresJobStore(pool)
 	pub := &events.NoOpPublisher{}
-	handler := api.NewRouter(pool, store, pub, svc)
+	handler := api.NewRouter(pool, store, pub, svc, nil)
 	return handler, plaintext
 }
 
@@ -398,7 +398,7 @@ func setupModelsIntegrationTest(t *testing.T) (http.Handler, string, string, str
 	svc := models.NewService(modelStore, jobStore, mc)
 
 	pub := &events.NoOpPublisher{}
-	handler := api.NewRouter(pool, jobStore, pub, svc)
+	handler := api.NewRouter(pool, jobStore, pub, svc, nil)
 	return handler, plaintext, run.ID, tenantID
 }
 

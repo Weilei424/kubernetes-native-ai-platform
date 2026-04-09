@@ -25,7 +25,7 @@ func setupInternalTest(t *testing.T) (http.Handler, jobs.Store, string, string) 
 	pool.QueryRow(ctx, `INSERT INTO projects (tenant_id, name) VALUES ($1, 'int-proj') RETURNING id::text`, tenantID).Scan(&projectID)
 
 	store := jobs.NewPostgresJobStore(pool)
-	handler := api.NewInternalRouter(store, &events.NoOpPublisher{})
+	handler := api.NewInternalRouter(store, &events.NoOpPublisher{}, nil)
 	return handler, store, tenantID, projectID
 }
 
