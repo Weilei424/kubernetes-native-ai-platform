@@ -201,4 +201,11 @@ func TestDeploymentsAPI_Delete_HappyPath(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+	var body map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["status"] != "deleting" {
+		t.Errorf("expected status deleting in response body, got %q", body["status"])
+	}
 }
