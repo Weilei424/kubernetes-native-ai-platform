@@ -2,21 +2,28 @@
 package deployments
 
 // validTransitions defines the allowed from → to pairs for deployment status.
+//
+// Deletion is a two-step process: user-initiated DELETE sets status to "deleting"
+// so the operator can clean up Kubernetes resources; the operator then transitions
+// to "deleted" once the pod and service are removed.
 var validTransitions = map[string]map[string]bool{
 	"pending": {
 		"provisioning": true,
-		"deleted":      true,
+		"deleting":     true,
 	},
 	"provisioning": {
-		"running": true,
-		"failed":  true,
-		"deleted": true,
+		"running":  true,
+		"failed":   true,
+		"deleting": true,
 	},
 	"running": {
-		"failed":  true,
-		"deleted": true,
+		"failed":   true,
+		"deleting": true,
 	},
 	"failed": {
+		"deleting": true,
+	},
+	"deleting": {
 		"deleted": true,
 	},
 }
