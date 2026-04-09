@@ -16,11 +16,10 @@ import (
 )
 
 // NewRouter builds and returns the chi router with all middleware and routes attached.
-// modelsSvc may be nil; model routes are only registered when it is non-nil.
-func NewRouter(db *pgxpool.Pool, store jobs.Store, publisher events.Publisher, modelsSvc ModelsService) http.Handler {
+// modelsSvc and deploymentsSvc may be nil; their routes are only registered when non-nil.
+func NewRouter(db *pgxpool.Pool, store jobs.Store, publisher events.Publisher, modelsSvc ModelsService, deploymentsSvc DeploymentsService) http.Handler {
 	r := chi.NewRouter()
 
-	// Public routes — no auth required
 	r.Get("/healthz", LivenessHandler)
 	r.Get("/readyz", ReadinessHandler(db))
 
@@ -33,7 +32,11 @@ func NewRouter(db *pgxpool.Pool, store jobs.Store, publisher events.Publisher, m
 		mh = &modelsHandler{svc: modelsSvc}
 	}
 
-	// Protected routes — auth + logging middleware
+	var dh *deploymentsHandler
+	if deploymentsSvc != nil {
+		dh = &deploymentsHandler{svc: deploymentsSvc}
+	}
+
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.RequestID)
 		r.Use(observability.RequestLogger(logger))
@@ -50,6 +53,12 @@ func NewRouter(db *pgxpool.Pool, store jobs.Store, publisher events.Publisher, m
 			r.Get("/v1/models/{name}/versions/{version}", mh.handleGetModelVersion)
 			r.Post("/v1/models/{name}/versions/{version}/promote", mh.handlePromote)
 			r.Get("/v1/models/{name}/alias/{alias}", mh.handleResolveAlias)
+		}
+
+		if dh != nil {
+			r.Post("/v1/deployments", dh.handleCreate)
+			r.Get("/v1/deployments/{id}", dh.handleGet)
+			r.Delete("/v1/deployments/{id}", dh.handleDelete)
 		}
 	})
 
