@@ -14,14 +14,20 @@ import (
 // --- mock store ---
 
 type mockDeploymentStore struct {
-	createErr  error
-	getResult  *deployments.Deployment
-	getErr     error
-	updateErr  error
-	deleteErr  error
-	listResult []*deployments.Deployment
-	listErr    error
-	created    *deployments.Deployment
+	createErr          error
+	getResult          *deployments.Deployment
+	getErr             error
+	updateErr          error
+	deleteErr          error
+	listResult         []*deployments.Deployment
+	listErr            error
+	created            *deployments.Deployment
+	currentRevision    int
+	currentRevisionErr error
+	revisionResult     *deployments.DeploymentRevision
+	revisionErr        error
+	rollbackResult     *deployments.Deployment
+	rollbackErr        error
 }
 
 func (m *mockDeploymentStore) CreateDeployment(_ context.Context, d *deployments.Deployment) error {
@@ -43,6 +49,15 @@ func (m *mockDeploymentStore) DeleteDeployment(_ context.Context, _ string) erro
 }
 func (m *mockDeploymentStore) ListPendingDeployments(_ context.Context) ([]*deployments.Deployment, error) {
 	return m.listResult, m.listErr
+}
+func (m *mockDeploymentStore) GetCurrentRevisionNumber(_ context.Context, _ string) (int, error) {
+	return m.currentRevision, m.currentRevisionErr
+}
+func (m *mockDeploymentStore) GetRevision(_ context.Context, _ string, _ int) (*deployments.DeploymentRevision, error) {
+	return m.revisionResult, m.revisionErr
+}
+func (m *mockDeploymentStore) RollbackDeployment(_ context.Context, _, _ string) (*deployments.Deployment, error) {
+	return m.rollbackResult, m.rollbackErr
 }
 
 // --- mock version reader ---
@@ -259,6 +274,91 @@ func TestService_Delete_NotFound(t *testing.T) {
 		&mockVersionReader{},
 	)
 	err := svc.Delete(context.Background(), "bad-id", "tenant-1")
+	if !errors.Is(err, deployments.ErrDeploymentNotFound) {
+		t.Fatalf("expected ErrDeploymentNotFound, got %v", err)
+	}
+}
+
+func TestService_Rollback_HappyPath(t *testing.T) {
+	dep := &deployments.Deployment{ID: "dep-1", TenantID: "tenant-1", Status: "running", ModelVersionID: "ver-2"}
+	rollbacked := &deployments.Deployment{ID: "dep-1", TenantID: "tenant-1", Status: "pending", ModelVersionID: "ver-1"}
+	rev := &deployments.DeploymentRevision{ID: "rev-1", DeploymentID: "dep-1", RevisionNumber: 1, ModelVersionID: "ver-1", Status: "active"}
+	svc := deployments.NewService(
+		&mockDeploymentStore{
+			getResult:       dep,
+			currentRevision: 2,
+			revisionResult:  rev,
+			rollbackResult:  rollbacked,
+		},
+		&mockVersionReader{},
+	)
+	got, err := svc.Rollback(context.Background(), "dep-1", "tenant-1", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Status != "pending" {
+		t.Errorf("expected status pending, got %q", got.Status)
+	}
+	if got.ModelVersionID != "ver-1" {
+		t.Errorf("expected model version ver-1, got %q", got.ModelVersionID)
+	}
+}
+
+func TestService_Rollback_ExplicitRevision(t *testing.T) {
+	dep := &deployments.Deployment{ID: "dep-1", TenantID: "tenant-1", Status: "running", ModelVersionID: "ver-3"}
+	rollbacked := &deployments.Deployment{ID: "dep-1", TenantID: "tenant-1", Status: "pending", ModelVersionID: "ver-1"}
+	rev := &deployments.DeploymentRevision{ID: "rev-1", DeploymentID: "dep-1", RevisionNumber: 1, ModelVersionID: "ver-1", Status: "active"}
+	svc := deployments.NewService(
+		&mockDeploymentStore{
+			getResult:       dep,
+			currentRevision: 3,
+			revisionResult:  rev,
+			rollbackResult:  rollbacked,
+		},
+		&mockVersionReader{},
+	)
+	got, err := svc.Rollback(context.Background(), "dep-1", "tenant-1", 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ModelVersionID != "ver-1" {
+		t.Errorf("expected model version ver-1, got %q", got.ModelVersionID)
+	}
+}
+
+func TestService_Rollback_AtRevision1_ReturnsError(t *testing.T) {
+	dep := &deployments.Deployment{ID: "dep-1", TenantID: "tenant-1", Status: "running"}
+	svc := deployments.NewService(
+		&mockDeploymentStore{
+			getResult:       dep,
+			currentRevision: 1,
+		},
+		&mockVersionReader{},
+	)
+	_, err := svc.Rollback(context.Background(), "dep-1", "tenant-1", 0)
+	if err == nil {
+		t.Fatal("expected error when already at revision 1")
+	}
+}
+
+func TestService_Rollback_WrongTenant(t *testing.T) {
+	dep := &deployments.Deployment{ID: "dep-1", TenantID: "tenant-A", Status: "running"}
+	svc := deployments.NewService(
+		&mockDeploymentStore{getResult: dep},
+		&mockVersionReader{},
+	)
+	_, err := svc.Rollback(context.Background(), "dep-1", "tenant-B", 0)
+	if !errors.Is(err, deployments.ErrDeploymentNotFound) {
+		t.Fatalf("expected ErrDeploymentNotFound for wrong tenant, got %v", err)
+	}
+}
+
+func TestService_Rollback_DeploymentNotFound(t *testing.T) {
+	svc := deployments.NewService(
+		&mockDeploymentStore{getErr: deployments.ErrDeploymentNotFound},
+		&mockVersionReader{},
+	)
+	_, err := svc.Rollback(context.Background(), "bad-id", "tenant-1", 0)
 	if !errors.Is(err, deployments.ErrDeploymentNotFound) {
 		t.Fatalf("expected ErrDeploymentNotFound, got %v", err)
 	}
