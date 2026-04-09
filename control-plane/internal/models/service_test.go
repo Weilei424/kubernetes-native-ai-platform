@@ -141,7 +141,7 @@ func TestService_Register_HappyPath(t *testing.T) {
 	mc := &mockMLflowClient{
 		createRegisteredModelCreated: true,
 		createVersionNum:             1,
-		createVersionArtifactURI:     "runs:/mlflow-run-abc/model/",
+		createVersionArtifactURI:     "mlflow-artifacts:/mlflow-bucket/mlflow-run-abc/artifacts/model/",
 	}
 	store := &mockModelStore{}
 
@@ -155,7 +155,7 @@ func TestService_Register_HappyPath(t *testing.T) {
 	if ver.VersionNumber != 1 {
 		t.Errorf("expected version 1, got %d", ver.VersionNumber)
 	}
-	if ver.ArtifactURI != "runs:/mlflow-run-abc/model/" {
+	if ver.ArtifactURI != "mlflow-artifacts:/mlflow-bucket/mlflow-run-abc/artifacts/model/" {
 		t.Errorf("unexpected artifact URI: %s", ver.ArtifactURI)
 	}
 	if ver.Status != "candidate" {
@@ -200,7 +200,7 @@ func TestService_Register_PGVersionFailureCleansUpVersion(t *testing.T) {
 	mc := &mockMLflowClient{
 		createRegisteredModelCreated: true,
 		createVersionNum:             1,
-		createVersionArtifactURI:     "runs:/mlflow-run-abc/model/",
+		createVersionArtifactURI:     "mlflow-artifacts:/mlflow-bucket/mlflow-run-abc/artifacts/model/",
 	}
 	store := &mockModelStore{createVersionErr: errors.New("db error")}
 
@@ -227,7 +227,7 @@ func TestService_Register_PGRecordFailureCleansUpModelAndVersion(t *testing.T) {
 	mc := &mockMLflowClient{
 		createRegisteredModelCreated: true,
 		createVersionNum:             1,
-		createVersionArtifactURI:     "runs:/mlflow-run-abc/model/",
+		createVersionArtifactURI:     "mlflow-artifacts:/mlflow-bucket/mlflow-run-abc/artifacts/model/",
 	}
 	store := &mockModelStore{createRecordErr: errors.New("db error")}
 
@@ -254,7 +254,7 @@ func TestService_Register_PGRecordFailureNoCleanupIfModelExisted(t *testing.T) {
 	mc := &mockMLflowClient{
 		createRegisteredModelCreated: false, // already existed
 		createVersionNum:             2,
-		createVersionArtifactURI:     "runs:/mlflow-run-abc/model/",
+		createVersionArtifactURI:     "mlflow-artifacts:/mlflow-bucket/mlflow-run-abc/artifacts/model/",
 	}
 	store := &mockModelStore{createRecordErr: errors.New("db error")}
 
