@@ -90,5 +90,5 @@ func (h *deploymentsHandler) handleDelete(w http.ResponseWriter, r *http.Request
 		}
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleting"})
 }
