@@ -39,9 +39,19 @@ type Store interface {
 	GetRunForRegistration(ctx context.Context, runID, tenantID string) (projectID, status string, mlflowRunID *string, err error)
 	TransitionJobStatus(ctx context.Context, id, from, to string, failureReason *string) error
 	GetTenantQuota(ctx context.Context, tenantID string) (cpuMillicores, memoryBytes int64, err error)
+	// GetRunningResourceUsage returns the approximate sum of cpu and memory used by
+	// RUNNING training_runs for the tenant. Values are parsed from TEXT columns via
+	// regex; precise accounting is handled by the scheduler.
+	GetRunningResourceUsage(ctx context.Context, tenantID string) (cpuMillicores, memoryBytes int64, runningJobs int, err error)
 	// ProjectBelongsToTenant returns nil if project exists and is owned by tenantID,
 	// or an error (ErrProjectNotFound) if it does not.
 	ProjectBelongsToTenant(ctx context.Context, projectID, tenantID string) error
+	// CountQueuedJobs returns the total number of PENDING + QUEUED jobs across all tenants.
+	CountQueuedJobs(ctx context.Context) (int, error)
+	// IncrementRetryCount increments retry_count for the given job and returns the new count.
+	IncrementRetryCount(ctx context.Context, jobID string) (newCount int, err error)
+	// CreateRetryRun inserts a new training_run for the given job (used on automatic retry).
+	CreateRetryRun(ctx context.Context, jobID, tenantID string) (*TrainingRun, error)
 }
 
 // PostgresJobStore implements Store against PostgreSQL.
@@ -100,7 +110,7 @@ func (s *PostgresJobStore) GetJob(ctx context.Context, id, tenantID string) (*Tr
 		SELECT id::text, tenant_id::text, project_id::text, name, status,
 		       image, command, args, env, num_workers,
 		       worker_cpu, worker_memory, head_cpu, head_memory,
-		       rayjob_name, created_at, updated_at
+		       rayjob_name, retry_count, max_retries, created_at, updated_at
 		FROM training_jobs
 		WHERE id = $1 AND tenant_id = $2`,
 		id, tenantID,
@@ -113,7 +123,7 @@ func (s *PostgresJobStore) GetJobByID(ctx context.Context, id string) (*Training
 		SELECT id::text, tenant_id::text, project_id::text, name, status,
 		       image, command, args, env, num_workers,
 		       worker_cpu, worker_memory, head_cpu, head_memory,
-		       rayjob_name, created_at, updated_at
+		       rayjob_name, retry_count, max_retries, created_at, updated_at
 		FROM training_jobs WHERE id = $1`, id,
 	)
 	return scanJob(row)
@@ -124,7 +134,7 @@ func (s *PostgresJobStore) ListJobs(ctx context.Context, tenantID string) ([]*Tr
 		SELECT id::text, tenant_id::text, project_id::text, name, status,
 		       image, command, args, env, num_workers,
 		       worker_cpu, worker_memory, head_cpu, head_memory,
-		       rayjob_name, created_at, updated_at
+		       rayjob_name, retry_count, max_retries, created_at, updated_at
 		FROM training_jobs
 		WHERE tenant_id = $1
 		ORDER BY created_at DESC`,
@@ -173,7 +183,7 @@ func (s *PostgresJobStore) ListActiveJobs(ctx context.Context, tenantID string) 
 		SELECT id::text, tenant_id::text, project_id::text, name, status,
 		       image, command, args, env, num_workers,
 		       worker_cpu, worker_memory, head_cpu, head_memory,
-		       rayjob_name, created_at, updated_at
+		       rayjob_name, retry_count, max_retries, created_at, updated_at
 		FROM training_jobs
 		WHERE tenant_id = $1 AND status IN ('QUEUED','RUNNING')`,
 		tenantID,
@@ -198,7 +208,7 @@ func (s *PostgresJobStore) ListNonTerminalJobs(ctx context.Context, tenantID str
 		SELECT id::text, tenant_id::text, project_id::text, name, status,
 		       image, command, args, env, num_workers,
 		       worker_cpu, worker_memory, head_cpu, head_memory,
-		       rayjob_name, created_at, updated_at
+		       rayjob_name, retry_count, max_retries, created_at, updated_at
 		FROM training_jobs
 		WHERE tenant_id = $1 AND status IN ('PENDING','QUEUED','RUNNING')`,
 		tenantID,
@@ -223,7 +233,7 @@ func (s *PostgresJobStore) GetOldestPendingJob(ctx context.Context, tenantID str
 		SELECT id::text, tenant_id::text, project_id::text, name, status,
 		       image, command, args, env, num_workers,
 		       worker_cpu, worker_memory, head_cpu, head_memory,
-		       rayjob_name, created_at, updated_at
+		       rayjob_name, retry_count, max_retries, created_at, updated_at
 		FROM training_jobs
 		WHERE tenant_id = $1 AND status = 'PENDING'
 		ORDER BY created_at ASC
@@ -256,7 +266,7 @@ func (s *PostgresJobStore) GetQueuedJobsWithoutRayJob(ctx context.Context) ([]*T
 		SELECT id::text, tenant_id::text, project_id::text, name, status,
 		       image, command, args, env, num_workers,
 		       worker_cpu, worker_memory, head_cpu, head_memory,
-		       rayjob_name, created_at, updated_at
+		       rayjob_name, retry_count, max_retries, created_at, updated_at
 		FROM training_jobs
 		WHERE status = 'QUEUED' AND rayjob_name IS NULL`)
 	if err != nil {
@@ -360,6 +370,49 @@ func (s *PostgresJobStore) GetTenantQuota(ctx context.Context, tenantID string) 
 	return
 }
 
+// parseMemoryBytes converts a Kubernetes memory quantity string to bytes.
+// Handles the common suffixes: Gi, Mi, Ki (binary) and G, M, K (decimal).
+// Returns the raw integer when no recognised suffix is present.
+const parseMemorySQL = `
+CASE
+  WHEN %[1]s LIKE '%%Gi' THEN CAST(regexp_replace(%[1]s,'[^0-9]','','g') AS BIGINT) * 1073741824
+  WHEN %[1]s LIKE '%%Mi' THEN CAST(regexp_replace(%[1]s,'[^0-9]','','g') AS BIGINT) * 1048576
+  WHEN %[1]s LIKE '%%Ki' THEN CAST(regexp_replace(%[1]s,'[^0-9]','','g') AS BIGINT) * 1024
+  WHEN %[1]s LIKE '%%G'  THEN CAST(regexp_replace(%[1]s,'[^0-9]','','g') AS BIGINT) * 1000000000
+  WHEN %[1]s LIKE '%%M'  THEN CAST(regexp_replace(%[1]s,'[^0-9]','','g') AS BIGINT) * 1000000
+  WHEN %[1]s LIKE '%%K'  THEN CAST(regexp_replace(%[1]s,'[^0-9]','','g') AS BIGINT) * 1000
+  ELSE CAST(regexp_replace(%[1]s,'[^0-9]','','g') AS BIGINT)
+END`
+
+func (s *PostgresJobStore) GetRunningResourceUsage(ctx context.Context, tenantID string) (cpuMillicores, memoryBytes int64, runningJobs int, err error) {
+	workerMemExpr := fmt.Sprintf(parseMemorySQL, "worker_memory")
+	headMemExpr := fmt.Sprintf(parseMemorySQL, "head_memory")
+	query := fmt.Sprintf(`
+		SELECT
+			COALESCE(SUM(
+				(SELECT CAST(regexp_replace(worker_cpu,'[^0-9]','','g') AS BIGINT) * num_workers +
+				            CAST(regexp_replace(head_cpu,'[^0-9]','','g') AS BIGINT)
+				 FROM training_jobs tj2 WHERE tj2.id = tr.job_id)
+			), 0),
+			COALESCE(SUM(
+				(SELECT (%s) * num_workers + (%s)
+				 FROM training_jobs tj2 WHERE tj2.id = tr.job_id)
+			), 0),
+			COUNT(*)
+		FROM training_runs tr
+		WHERE tr.tenant_id = $1::uuid AND tr.status = 'RUNNING'`,
+		workerMemExpr, headMemExpr)
+	err = s.db.QueryRow(ctx, query, tenantID).Scan(&cpuMillicores, &memoryBytes, &runningJobs)
+	return
+}
+
+func (s *PostgresJobStore) CountQueuedJobs(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM training_jobs WHERE status IN ('PENDING', 'QUEUED')`).Scan(&count)
+	return count, err
+}
+
 func (s *PostgresJobStore) ProjectBelongsToTenant(ctx context.Context, projectID, tenantID string) error {
 	var exists bool
 	err := s.db.QueryRow(ctx,
@@ -375,6 +428,36 @@ func (s *PostgresJobStore) ProjectBelongsToTenant(ctx context.Context, projectID
 	return nil
 }
 
+func (s *PostgresJobStore) IncrementRetryCount(ctx context.Context, jobID string) (int, error) {
+	var newCount int
+	err := s.db.QueryRow(ctx,
+		`UPDATE training_jobs SET retry_count = retry_count + 1, updated_at = now()
+		 WHERE id = $1 RETURNING retry_count`,
+		jobID,
+	).Scan(&newCount)
+	return newCount, err
+}
+
+func (s *PostgresJobStore) CreateRetryRun(ctx context.Context, jobID, tenantID string) (*TrainingRun, error) {
+	run := &TrainingRun{}
+	err := s.db.QueryRow(ctx, `
+		INSERT INTO training_runs (job_id, tenant_id, status)
+		VALUES ($1, $2, 'QUEUED')
+		RETURNING id::text, job_id::text, tenant_id::text, status,
+		          mlflow_run_id, started_at, finished_at, failure_reason,
+		          created_at, updated_at`,
+		jobID, tenantID,
+	).Scan(
+		&run.ID, &run.JobID, &run.TenantID, &run.Status,
+		&run.MLflowRunID, &run.StartedAt, &run.FinishedAt, &run.FailureReason,
+		&run.CreatedAt, &run.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create retry run: %w", err)
+	}
+	return run, nil
+}
+
 type scannable interface {
 	Scan(dest ...any) error
 }
@@ -387,7 +470,7 @@ func scanJob(row scannable) (*TrainingJob, error) {
 		&j.ID, &j.TenantID, &j.ProjectID, &j.Name, &j.Status,
 		&j.Image, &j.Command, &j.Args, &envJSON, &j.NumWorkers,
 		&j.WorkerCPU, &j.WorkerMemory, &j.HeadCPU, &j.HeadMemory,
-		&rayJobName, &j.CreatedAt, &j.UpdatedAt,
+		&rayJobName, &j.RetryCount, &j.MaxRetries, &j.CreatedAt, &j.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
