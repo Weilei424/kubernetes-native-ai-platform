@@ -103,6 +103,14 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+	// Initialise deployment_count gauge from current DB state so the gauge is
+	// accurate from the first scrape and Dec/Inc transitions don't go negative.
+	if counts, err := deploymentStore.CountByStatus(context.Background()); err != nil {
+		slog.Warn("failed to sync deployment count gauge", "error", err)
+	} else {
+		observability.SyncDeploymentCountGauge(counts)
+	}
+
 	deploymentsSvc := deployments.NewService(deploymentStore, modelStore)
 	r := api.NewRouter(pool, store, publisher, modelsSvc, deploymentsSvc, eventStore)
 	slog.Info("server starting", "port", port)
