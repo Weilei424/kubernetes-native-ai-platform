@@ -294,7 +294,8 @@ func (s *PostgresJobStore) SetRayJobName(ctx context.Context, id, rayJobName str
 
 func (s *PostgresJobStore) SetMLflowRunID(ctx context.Context, jobID, mlflowRunID string) error {
 	_, err := s.db.Exec(ctx,
-		`UPDATE training_runs SET mlflow_run_id = $1, updated_at = now() WHERE job_id = $2`,
+		`UPDATE training_runs SET mlflow_run_id = $1, updated_at = now()
+		 WHERE id = (SELECT id FROM training_runs WHERE job_id = $2 ORDER BY created_at DESC LIMIT 1)`,
 		mlflowRunID, jobID,
 	)
 	return err
@@ -336,14 +337,18 @@ func (s *PostgresJobStore) TransitionJobStatus(ctx context.Context, id, from, to
 		return fmt.Errorf("job %s not found in status %s", id, from)
 	}
 
+	// Target only the most recent training_run for this job so historical run
+	// records are preserved across retries (each retry creates a new run row).
+	const latestRunSubquery = `(SELECT id FROM training_runs WHERE job_id = $2 ORDER BY created_at DESC LIMIT 1)`
+
 	var runUpdate string
 	switch to {
 	case "RUNNING":
-		runUpdate = `UPDATE training_runs SET status = $1, started_at = now(), updated_at = now() WHERE job_id = $2`
+		runUpdate = `UPDATE training_runs SET status = $1, started_at = now(), updated_at = now() WHERE id = ` + latestRunSubquery
 	case "SUCCEEDED", "FAILED":
-		runUpdate = `UPDATE training_runs SET status = $1, finished_at = now(), updated_at = now() WHERE job_id = $2`
+		runUpdate = `UPDATE training_runs SET status = $1, finished_at = now(), updated_at = now() WHERE id = ` + latestRunSubquery
 	default:
-		runUpdate = `UPDATE training_runs SET status = $1, updated_at = now() WHERE job_id = $2`
+		runUpdate = `UPDATE training_runs SET status = $1, updated_at = now() WHERE id = ` + latestRunSubquery
 	}
 
 	if _, err := tx.Exec(ctx, runUpdate, to, id); err != nil {
@@ -352,7 +357,7 @@ func (s *PostgresJobStore) TransitionJobStatus(ctx context.Context, id, from, to
 
 	if failureReason != nil {
 		if _, err := tx.Exec(ctx,
-			`UPDATE training_runs SET failure_reason = $1 WHERE job_id = $2`,
+			`UPDATE training_runs SET failure_reason = $1 WHERE id = `+latestRunSubquery,
 			*failureReason, id,
 		); err != nil {
 			return fmt.Errorf("update failure_reason: %w", err)
