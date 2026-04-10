@@ -1,0 +1,119 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: aiplatform
+data:
+  control-plane.json: |
+    {
+      "title": "Control Plane",
+      "uid": "control-plane",
+      "schemaVersion": 38,
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "API Request Rate",
+          "gridPos": {"x":0,"y":0,"w":12,"h":8},
+          "targets": [{"expr": "rate(http_request_duration_seconds_count[1m])", "legendFormat": "{{method}} {{path}}"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "API p99 Latency",
+          "gridPos": {"x":12,"y":0,"w":12,"h":8},
+          "targets": [{"expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))", "legendFormat": "p99 {{path}}"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "API Error Rate (5xx)",
+          "gridPos": {"x":0,"y":8,"w":12,"h":8},
+          "targets": [{"expr": "rate(http_request_duration_seconds_count{status_code=~\"5..\"}[1m])", "legendFormat": "errors"}]
+        },
+        {
+          "type": "stat",
+          "title": "Active Deployments",
+          "gridPos": {"x":12,"y":8,"w":6,"h":4},
+          "targets": [{"expr": "sum(deployment_count{status=\"running\"})"}]
+        }
+      ]
+    }
+  training.json: |
+    {
+      "title": "Training",
+      "uid": "training",
+      "schemaVersion": 38,
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Job Queue Depth",
+          "gridPos": {"x":0,"y":0,"w":12,"h":8},
+          "targets": [{"expr": "job_queue_depth", "legendFormat": "queue depth"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Admission Failures",
+          "gridPos": {"x":12,"y":0,"w":12,"h":8},
+          "targets": [{"expr": "rate(job_admission_failures_total[5m])", "legendFormat": "{{reason}}"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Run Duration (p50 / p95)",
+          "gridPos": {"x":0,"y":8,"w":12,"h":8},
+          "targets": [
+            {"expr": "histogram_quantile(0.50, rate(training_run_duration_seconds_bucket[10m]))", "legendFormat": "p50"},
+            {"expr": "histogram_quantile(0.95, rate(training_run_duration_seconds_bucket[10m]))", "legendFormat": "p95"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Auto-Retries",
+          "gridPos": {"x":12,"y":8,"w":12,"h":8},
+          "targets": [{"expr": "rate(training_run_retry_total[5m])", "legendFormat": "retries/s"}]
+        }
+      ]
+    }
+  triton-serving.json: |
+    {
+      "title": "Triton Serving",
+      "uid": "triton-serving",
+      "schemaVersion": 38,
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Inference Request Rate",
+          "gridPos": {"x":0,"y":0,"w":12,"h":8},
+          "targets": [{"expr": "rate(nv_inference_request_success[1m])", "legendFormat": "{{model}}"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Inference p99 Latency (ms)",
+          "gridPos": {"x":12,"y":0,"w":12,"h":8},
+          "targets": [{"expr": "nv_inference_request_duration_us / 1000", "legendFormat": "{{model}}"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Inference Failure Rate",
+          "gridPos": {"x":0,"y":8,"w":12,"h":8},
+          "targets": [{"expr": "rate(nv_inference_request_failure[1m])", "legendFormat": "{{model}}"}]
+        }
+      ]
+    }
+  resource.json: |
+    {
+      "title": "Resource Consumption",
+      "uid": "resource",
+      "schemaVersion": 38,
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Deployments by Status",
+          "gridPos": {"x":0,"y":0,"w":12,"h":8},
+          "targets": [{"expr": "deployment_count", "legendFormat": "{{status}}"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Job Queue Depth",
+          "gridPos": {"x":12,"y":0,"w":12,"h":8},
+          "targets": [{"expr": "job_queue_depth", "legendFormat": "depth"}]
+        }
+      ]
+    }
