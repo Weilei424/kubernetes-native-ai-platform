@@ -13,6 +13,7 @@ import (
 
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/auth"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/deployments"
+	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/observability"
 )
 
 // DeploymentsService is the interface the handler depends on (exported for test use).
@@ -59,6 +60,8 @@ func (h *deploymentsHandler) handleCreate(w http.ResponseWriter, r *http.Request
 		}
 		return
 	}
+	// Track newly created deployment in the gauge. All deployments start at "pending".
+	observability.DeploymentCount.WithLabelValues("pending").Inc()
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"deployment": dep})
 }
 
@@ -83,6 +86,9 @@ func (h *deploymentsHandler) handleDelete(w http.ResponseWriter, r *http.Request
 	tenantID := auth.TenantIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
 
+	// Snapshot current status before deletion so we can update the gauge accurately.
+	prior, priorErr := h.svc.Get(r.Context(), id, tenantID)
+
 	if err := h.svc.Delete(r.Context(), id, tenantID); err != nil {
 		if errors.Is(err, deployments.ErrDeploymentNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "deployment not found"})
@@ -91,6 +97,10 @@ func (h *deploymentsHandler) handleDelete(w http.ResponseWriter, r *http.Request
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		}
 		return
+	}
+	if priorErr == nil && prior != nil {
+		observability.DeploymentCount.WithLabelValues(prior.Status).Dec()
+		observability.DeploymentCount.WithLabelValues("deleting").Inc()
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleting"})
 }
@@ -104,6 +114,9 @@ func (h *deploymentsHandler) handleRollback(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 		return
 	}
+
+	// Snapshot current status before rollback so we can update the gauge accurately.
+	prior, priorErr := h.svc.Get(r.Context(), id, tenantID)
 
 	dep, err := h.svc.Rollback(r.Context(), id, tenantID, req.Revision)
 	if err != nil {
@@ -119,6 +132,10 @@ func (h *deploymentsHandler) handleRollback(w http.ResponseWriter, r *http.Reque
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		}
 		return
+	}
+	if priorErr == nil && prior != nil {
+		observability.DeploymentCount.WithLabelValues(prior.Status).Dec()
+		observability.DeploymentCount.WithLabelValues("pending").Inc()
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"deployment": dep})
 }
