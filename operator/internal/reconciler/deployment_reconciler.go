@@ -170,6 +170,7 @@ func (r *DeploymentReconciler) buildPod(dep *deploymentRecord) *corev1.Pod {
 			Namespace: dep.Namespace,
 			Labels: map[string]string{
 				"platform.ai/deployment-id": dep.ID,
+				"app":                       "triton",
 			},
 		},
 		Spec: corev1.PodSpec{
