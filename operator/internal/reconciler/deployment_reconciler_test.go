@@ -80,6 +80,59 @@ func TestMapPodPhase_InitError(t *testing.T) {
 	}
 }
 
+// TestBuildPod_HasTritonAppLabel verifies that pods created by the reconciler carry
+// the "app=triton" label required by the Prometheus Kubernetes SD scrape config.
+func TestBuildPod_HasTritonAppLabel(t *testing.T) {
+	podCreated := false
+	podLabels := map[string]string{}
+
+	fakeCP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"deployments": []map[string]any{{
+					"id": "pod-label-test", "name": "test", "namespace": "default",
+					"status": "pending", "desired_replicas": 1,
+					"artifact_uri": "s3://bucket/model", "model_name": "resnet",
+				}},
+			})
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer fakeCP.Close()
+
+	fakeClient := fake.NewFakeClient()
+	dr := &reconciler.DeploymentReconciler{
+		Client:          fakeClient,
+		ControlPlaneURL: fakeCP.URL,
+		HTTPClient:      fakeCP.Client(),
+		PollInterval:    20 * time.Millisecond,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	_ = dr.Start(ctx)
+
+	// List pods created in the fake client.
+	podList := &corev1.PodList{}
+	if err := fakeClient.List(context.Background(), podList); err != nil {
+		t.Fatalf("list pods: %v", err)
+	}
+	for _, p := range podList.Items {
+		if p.Name == "triton-pod-label-test" {
+			podCreated = true
+			podLabels = p.Labels
+		}
+	}
+
+	if !podCreated {
+		t.Fatal("expected Triton pod to be created but none found")
+	}
+	if podLabels["app"] != "triton" {
+		t.Errorf("expected pod label app=triton, got labels: %v", podLabels)
+	}
+}
+
 // TestDeploymentReconciler_TritonReadinessFail_StaysProvisioning verifies that
 // the reconciler does NOT report status="running" when no running pod exists in
 // the cluster (simulating Triton failing readiness / 503 / not yet running).
