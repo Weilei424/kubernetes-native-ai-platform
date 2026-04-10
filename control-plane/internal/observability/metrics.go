@@ -52,6 +52,16 @@ var (
 	}, []string{"status"})
 )
 
+// SyncDeploymentCountGauge resets DeploymentCount and sets it from a status→count map.
+// Call this at process start (after DB is ready) so the gauge reflects pre-existing
+// deployments rather than starting at zero and drifting negative on the first Dec.
+func SyncDeploymentCountGauge(counts map[string]int64) {
+	DeploymentCount.Reset()
+	for status, count := range counts {
+		DeploymentCount.WithLabelValues(status).Set(float64(count))
+	}
+}
+
 // PrometheusMiddleware records HTTP request duration for each handler.
 func PrometheusMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
