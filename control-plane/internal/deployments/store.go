@@ -37,6 +37,9 @@ type Store interface {
 	// updates the deployment's model_version_id to targetModelVersionID, sets status to
 	// 'pending', and clears serving_endpoint.
 	RollbackDeployment(ctx context.Context, deploymentID, targetModelVersionID string) (*Deployment, error)
+	// CountByStatus returns the number of deployments grouped by status.
+	// Used to initialise the deployment_count gauge on process start.
+	CountByStatus(ctx context.Context) (map[string]int64, error)
 }
 
 // PostgresDeploymentStore implements Store against PostgreSQL.
@@ -215,6 +218,25 @@ func (s *PostgresDeploymentStore) RollbackDeployment(ctx context.Context, deploy
 	}
 
 	return &d, tx.Commit(ctx)
+}
+
+func (s *PostgresDeploymentStore) CountByStatus(ctx context.Context) (map[string]int64, error) {
+	rows, err := s.db.Query(ctx,
+		`SELECT status, COUNT(*) FROM deployments WHERE status NOT IN ('deleted') GROUP BY status`)
+	if err != nil {
+		return nil, fmt.Errorf("count deployments by status: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[string]int64)
+	for rows.Next() {
+		var status string
+		var count int64
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, err
+		}
+		result[status] = count
+	}
+	return result, rows.Err()
 }
 
 func (s *PostgresDeploymentStore) ListPendingDeployments(ctx context.Context) ([]*Deployment, error) {
