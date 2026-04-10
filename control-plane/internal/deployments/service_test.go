@@ -59,6 +59,9 @@ func (m *mockDeploymentStore) GetRevision(_ context.Context, _ string, _ int) (*
 func (m *mockDeploymentStore) RollbackDeployment(_ context.Context, _, _ string) (*deployments.Deployment, error) {
 	return m.rollbackResult, m.rollbackErr
 }
+func (m *mockDeploymentStore) CountByStatus(_ context.Context) (map[string]int64, error) {
+	return map[string]int64{}, nil
+}
 
 // --- mock version reader ---
 
