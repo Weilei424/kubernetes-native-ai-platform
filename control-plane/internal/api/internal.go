@@ -53,10 +53,24 @@ func (h *internalHandler) handleUpdateJobStatus(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Capture the current run's started_at before transitioning so we can observe
+	// training_run_duration_seconds when the run reaches a terminal state.
+	var currentRun *jobs.TrainingRun
+	if req.Status == "SUCCEEDED" || req.Status == "FAILED" {
+		if run, runErr := h.store.GetRunByJobID(r.Context(), jobID); runErr == nil {
+			currentRun = run
+		}
+	}
+
 	if err := h.store.TransitionJobStatus(r.Context(), jobID, job.Status, req.Status, req.FailureReason); err != nil {
 		slog.Error("internal: transition status", "job_id", jobID, "from", job.Status, "to", req.Status, "error", err)
 		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return
+	}
+
+	// Emit run duration when a run reaches a terminal state.
+	if currentRun != nil && currentRun.StartedAt != nil {
+		observability.TrainingRunDuration.Observe(time.Since(*currentRun.StartedAt).Seconds())
 	}
 
 	if h.eventStore != nil {
@@ -179,6 +193,10 @@ func (h *internalHandler) handleUpdateDeploymentStatus(w http.ResponseWriter, r 
 			slog.Warn("internal: write deployment event", "deployment_id", id, "error", err)
 		}
 	}
+
+	// Update deployment_count gauge: decrement old status, increment new status.
+	observability.DeploymentCount.WithLabelValues(current.Status).Dec()
+	observability.DeploymentCount.WithLabelValues(req.Status).Inc()
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": req.Status})
 }
