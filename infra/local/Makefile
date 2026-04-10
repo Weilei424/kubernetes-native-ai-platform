@@ -26,6 +26,12 @@ local-up:
 	@echo "==> Deploying MLflow..."
 	kubectl apply -f manifests/mlflow/
 	kubectl rollout status deployment/mlflow -n $(NAMESPACE) --timeout=180s
+	@echo "==> Deploying Prometheus..."
+	kubectl apply -f manifests/prometheus/
+	kubectl rollout status deployment/prometheus -n $(NAMESPACE) --timeout=120s
+	@echo "==> Deploying Grafana..."
+	kubectl apply -f manifests/grafana/
+	kubectl rollout status deployment/grafana -n $(NAMESPACE) --timeout=120s
 	@echo ""
 	@echo "==> Stack is ready."
 	@$(MAKE) local-status
@@ -43,3 +49,5 @@ local-status:
 	@echo "                DSN: postgres://aiplatform:aiplatform@localhost:5432/aiplatform?sslmode=disable"
 	@echo "  MinIO API:    kubectl port-forward svc/minio -n $(NAMESPACE) 9000:9000"
 	@echo "  Kafka:        kubectl port-forward svc/kafka -n $(NAMESPACE) 9092:9092"
+	@echo "  Prometheus:   http://localhost:30090"
+	@echo "  Grafana:      http://localhost:30300 (anonymous admin)"
