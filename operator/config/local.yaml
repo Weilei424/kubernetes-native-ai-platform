@@ -1,0 +1,8 @@
+env: local
+namespace: aiplatform
+leader_election: false
+webhook_enabled: false
+metrics_port: 8082
+retry_base_delay: 5s
+retry_max_delay: 30s
+poll_interval: 10s
