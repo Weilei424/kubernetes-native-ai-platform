@@ -9,10 +9,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/api"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/deployments"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/events"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/jobs"
+	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/observability"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/testutil"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -196,6 +198,7 @@ func TestDeploymentsAPI_Get_NotFound(t *testing.T) {
 
 func TestDeploymentsAPI_Rollback_HappyPath(t *testing.T) {
 	svc := &mockDeploymentsService{
+		getResult:      &deployments.Deployment{ID: "dep-1", Status: "running"},
 		rollbackResult: &deployments.Deployment{ID: "dep-1", Status: "pending"},
 	}
 	handler, token := setupDeploymentsAPITest(t, svc)
@@ -213,6 +216,7 @@ func TestDeploymentsAPI_Rollback_HappyPath(t *testing.T) {
 
 func TestDeploymentsAPI_Rollback_EmptyBody(t *testing.T) {
 	svc := &mockDeploymentsService{
+		getResult:      &deployments.Deployment{ID: "dep-1", Status: "running"},
 		rollbackResult: &deployments.Deployment{ID: "dep-1", Status: "pending"},
 	}
 	handler, token := setupDeploymentsAPITest(t, svc)
@@ -258,7 +262,9 @@ func TestDeploymentsAPI_Rollback_InvalidRevision(t *testing.T) {
 }
 
 func TestDeploymentsAPI_Delete_HappyPath(t *testing.T) {
-	svc := &mockDeploymentsService{}
+	svc := &mockDeploymentsService{
+		getResult: &deployments.Deployment{ID: "dep-1", Status: "running"},
+	}
 	handler, token := setupDeploymentsAPITest(t, svc)
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/deployments/dep-1", nil)
@@ -275,5 +281,169 @@ func TestDeploymentsAPI_Delete_HappyPath(t *testing.T) {
 	}
 	if body["status"] != "deleting" {
 		t.Errorf("expected status deleting in response body, got %q", body["status"])
+	}
+}
+
+// TestDeploymentsAPI_Create_IncrementsGauge verifies that a successful POST /v1/deployments
+// increments the deployment_count{status="pending"} gauge so the metric is accurate for
+// deployments created after the startup snapshot.
+func TestDeploymentsAPI_Create_IncrementsGauge(t *testing.T) {
+	svc := &mockDeploymentsService{
+		createResult: &deployments.Deployment{ID: "dep-g1", Name: "gauge-dep", Status: "pending"},
+	}
+	handler, token := setupDeploymentsAPITest(t, svc)
+
+	before := promtest.ToFloat64(observability.DeploymentCount.WithLabelValues("pending"))
+
+	body := map[string]interface{}{
+		"model_name": "resnet50", "model_version": 1,
+		"name": "gauge-dep", "namespace": "default", "replicas": 1,
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/v1/deployments", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	after := promtest.ToFloat64(observability.DeploymentCount.WithLabelValues("pending"))
+	if after-before != 1 {
+		t.Errorf("expected pending gauge delta +1 (before=%.0f after=%.0f)", before, after)
+	}
+}
+
+// TestDeploymentsAPI_Delete_UpdatesGauge verifies that DELETE /v1/deployments/:id
+// decrements the old-status gauge and increments deleting.
+func TestDeploymentsAPI_Delete_UpdatesGauge(t *testing.T) {
+	svc := &mockDeploymentsService{
+		getResult: &deployments.Deployment{ID: "dep-g2", Status: "running"},
+	}
+	handler, token := setupDeploymentsAPITest(t, svc)
+
+	runningBefore := promtest.ToFloat64(observability.DeploymentCount.WithLabelValues("running"))
+	deletingBefore := promtest.ToFloat64(observability.DeploymentCount.WithLabelValues("deleting"))
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/deployments/dep-g2", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if promtest.ToFloat64(observability.DeploymentCount.WithLabelValues("running"))-runningBefore != -1 {
+		t.Error("expected running gauge to decrease by 1 on delete")
+	}
+	if promtest.ToFloat64(observability.DeploymentCount.WithLabelValues("deleting"))-deletingBefore != 1 {
+		t.Error("expected deleting gauge to increase by 1 on delete")
+	}
+}
+
+// TestDeploymentsAPI_Rollback_UpdatesGauge verifies that POST /v1/deployments/:id/rollback
+// decrements the old-status gauge and increments pending.
+func TestDeploymentsAPI_Rollback_UpdatesGauge(t *testing.T) {
+	svc := &mockDeploymentsService{
+		getResult:      &deployments.Deployment{ID: "dep-g3", Status: "running"},
+		rollbackResult: &deployments.Deployment{ID: "dep-g3", Status: "pending"},
+	}
+	handler, token := setupDeploymentsAPITest(t, svc)
+
+	runningBefore := promtest.ToFloat64(observability.DeploymentCount.WithLabelValues("running"))
+	pendingBefore := promtest.ToFloat64(observability.DeploymentCount.WithLabelValues("pending"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/deployments/dep-g3/rollback", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if promtest.ToFloat64(observability.DeploymentCount.WithLabelValues("running"))-runningBefore != -1 {
+		t.Error("expected running gauge to decrease by 1 on rollback")
+	}
+	if promtest.ToFloat64(observability.DeploymentCount.WithLabelValues("pending"))-pendingBefore != 1 {
+		t.Error("expected pending gauge to increase by 1 on rollback")
+	}
+}
+
+// TestInternalStatus_DeletedNotInGauge verifies that the deleting→deleted transition
+// decrements deleting but does NOT increment deleted, matching the startup snapshot
+// which excludes deleted rows. This prevents the series from appearing at runtime
+// then vanishing after process restart.
+func TestInternalStatus_DeletedNotInGauge(t *testing.T) {
+	pool := testutil.SetupDB(t)
+	ctx := context.Background()
+
+	var tenantID, projectID string
+	pool.QueryRow(ctx, `INSERT INTO tenants (name) VALUES ('deleted-gauge-tenant') RETURNING id::text`).Scan(&tenantID)
+	pool.QueryRow(ctx, `INSERT INTO projects (tenant_id, name) VALUES ($1, 'proj') RETURNING id::text`, tenantID).Scan(&projectID)
+
+	jobStore := jobs.NewPostgresJobStore(pool)
+	srcJob := &jobs.TrainingJob{
+		TenantID: tenantID, ProjectID: projectID, Name: "del-gauge-src-job",
+		Status: "PENDING", Image: "img:1", Command: []string{"run"},
+		Args: []string{}, Env: map[string]string{},
+		NumWorkers: 1, WorkerCPU: "1", WorkerMemory: "1Gi",
+		HeadCPU: "1", HeadMemory: "1Gi",
+	}
+	srcRun := &jobs.TrainingRun{TenantID: tenantID, Status: "SUCCEEDED"}
+	if err := jobStore.CreateJobWithRun(ctx, srcJob, srcRun); err != nil {
+		t.Fatalf("CreateJobWithRun: %v", err)
+	}
+
+	modelStore := jobs.NewPostgresJobStore(pool) // reuse pool for model insert
+	_ = modelStore
+	var modelRecordID string
+	pool.QueryRow(ctx,
+		`INSERT INTO model_records (tenant_id, project_id, name, mlflow_registered_model_name) VALUES ($1, $2, 'del-model', 'del-model') RETURNING id::text`,
+		tenantID, projectID,
+	).Scan(&modelRecordID)
+	var modelVersionID string
+	pool.QueryRow(ctx,
+		`INSERT INTO model_versions (model_record_id, tenant_id, version_number, mlflow_run_id, source_run_id, artifact_uri, status)
+		 VALUES ($1, $2, 1, 'mlflow-del-1', $3::uuid, 's3://b/m', 'production') RETURNING id::text`,
+		modelRecordID, tenantID, srcRun.ID,
+	).Scan(&modelVersionID)
+
+	depStore := deployments.NewPostgresDeploymentStore(pool)
+	dep := &deployments.Deployment{
+		TenantID: tenantID, ProjectID: projectID,
+		ModelRecordID: modelRecordID, ModelVersionID: modelVersionID,
+		Name: "del-gauge-dep", Namespace: "default",
+		Status: "deleting", DesiredReplicas: 1,
+	}
+	// Insert directly at "deleting" status bypassing service validation.
+	pool.QueryRow(ctx,
+		`INSERT INTO deployments (tenant_id, project_id, model_record_id, model_version_id, name, namespace, status, desired_replicas)
+		 VALUES ($1,$2,$3,$4,$5,$6,'deleting',1) RETURNING id::text`,
+		tenantID, projectID, modelRecordID, modelVersionID, dep.Name, dep.Namespace,
+	).Scan(&dep.ID)
+	pool.Exec(ctx, `INSERT INTO deployment_revisions (deployment_id, revision_number, model_version_id, status) VALUES ($1::uuid, 1, $2::uuid, 'active')`, dep.ID, modelVersionID) //nolint:errcheck
+
+	internalHandler := api.NewInternalRouter(jobStore, &events.NoOpPublisher{}, depStore, nil)
+
+	deletingBefore := promtest.ToFloat64(observability.DeploymentCount.WithLabelValues("deleting"))
+	deletedBefore := promtest.ToFloat64(observability.DeploymentCount.WithLabelValues("deleted"))
+
+	body := map[string]interface{}{"status": "deleted"}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPatch, "/internal/v1/deployments/"+dep.ID+"/status", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	internalHandler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if promtest.ToFloat64(observability.DeploymentCount.WithLabelValues("deleting"))-deletingBefore != -1 {
+		t.Error("expected deleting gauge to decrease by 1 on deleted transition")
+	}
+	if promtest.ToFloat64(observability.DeploymentCount.WithLabelValues("deleted"))-deletedBefore != 0 {
+		t.Error("expected deleted gauge to remain unchanged (excluded from metric)")
 	}
 }
