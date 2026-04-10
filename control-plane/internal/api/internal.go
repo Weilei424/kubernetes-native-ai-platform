@@ -194,9 +194,13 @@ func (h *internalHandler) handleUpdateDeploymentStatus(w http.ResponseWriter, r 
 		}
 	}
 
-	// Update deployment_count gauge: decrement old status, increment new status.
+	// Update deployment_count gauge. "deleted" is excluded from the gauge to match
+	// the startup snapshot (CountByStatus excludes deleted rows), preventing the
+	// series from appearing at runtime then vanishing after process restart.
 	observability.DeploymentCount.WithLabelValues(current.Status).Dec()
-	observability.DeploymentCount.WithLabelValues(req.Status).Inc()
+	if req.Status != "deleted" {
+		observability.DeploymentCount.WithLabelValues(req.Status).Inc()
+	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": req.Status})
 }
