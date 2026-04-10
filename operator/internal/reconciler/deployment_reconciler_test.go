@@ -2,11 +2,16 @@
 package reconciler_test
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/Weilei424/kubernetes-native-ai-platform/operator/internal/reconciler"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestMapPodPhase_Running(t *testing.T) {
@@ -61,6 +66,60 @@ func TestServingEndpoint(t *testing.T) {
 func TestDefaultInterval(t *testing.T) {
 	if reconciler.DefaultPollInterval != 10*time.Second {
 		t.Fatalf("expected 10s, got %v", reconciler.DefaultPollInterval)
+	}
+}
+
+// TestMapPodPhase_InitError verifies that an init-container error phase string
+// (not a standard corev1.PodPhase constant) is mapped to "provisioning" via the
+// default branch, since Kubernetes surfaces init errors as a reason string rather
+// than a distinct phase value.
+func TestMapPodPhase_InitError(t *testing.T) {
+	result := reconciler.MapPodPhase(corev1.PodPhase("Init:Error"))
+	if result != "provisioning" {
+		t.Errorf("expected 'provisioning', got %q", result)
+	}
+}
+
+// TestDeploymentReconciler_TritonReadinessFail_StaysProvisioning verifies that
+// the reconciler does NOT report status="running" when no running pod exists in
+// the cluster (simulating Triton failing readiness / 503 / not yet running).
+func TestDeploymentReconciler_TritonReadinessFail_StaysProvisioning(t *testing.T) {
+	sentRunning := false
+
+	fakeCP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			// Return one provisioning deployment for the reconciler to act on.
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"deployments": []map[string]any{{
+					"id": "dep-1", "name": "test", "namespace": "default",
+					"status": "provisioning", "desired_replicas": 1,
+					"artifact_uri": "s3://bucket/model", "model_name": "resnet",
+				}},
+			})
+		} else if r.Method == http.MethodPatch {
+			var body map[string]string
+			json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+			if body["status"] == "running" {
+				sentRunning = true
+			}
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer fakeCP.Close()
+
+	dr := &reconciler.DeploymentReconciler{
+		Client:          fake.NewFakeClient(),
+		ControlPlaneURL: fakeCP.URL,
+		HTTPClient:      fakeCP.Client(),
+		PollInterval:    20 * time.Millisecond,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	_ = dr.Start(ctx)
+
+	if sentRunning {
+		t.Error("reconciler advanced to 'running' despite no running pod in the cluster")
 	}
 }
 
