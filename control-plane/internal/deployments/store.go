@@ -19,8 +19,8 @@ type Store interface {
 	// GetDeployment returns the deployment with the given id.
 	// Returns ErrDeploymentNotFound if not found.
 	GetDeployment(ctx context.Context, id string) (*Deployment, error)
-	// UpdateDeploymentStatus updates the status and serving_endpoint of a deployment.
-	UpdateDeploymentStatus(ctx context.Context, id, status, endpoint string) error
+	// UpdateDeploymentStatus updates the status, serving_endpoint, and failure_reason of a deployment.
+	UpdateDeploymentStatus(ctx context.Context, id, status, endpoint, failureReason string) error
 	// DeleteDeployment sets the deployment status to "deleted".
 	// Returns ErrDeploymentNotFound if no deployment with the given id exists
 	// or if the deployment is already deleted.
@@ -99,12 +99,12 @@ func (s *PostgresDeploymentStore) GetDeployment(ctx context.Context, id string) 
 	err := s.db.QueryRow(ctx, `
 		SELECT id::text, tenant_id::text, project_id::text, model_record_id::text,
 		       model_version_id::text, name, namespace, status, desired_replicas,
-		       COALESCE(serving_endpoint, ''), created_at, updated_at
+		       COALESCE(serving_endpoint, ''), COALESCE(failure_reason, ''), created_at, updated_at
 		FROM deployments WHERE id = $1::uuid`, id,
 	).Scan(
 		&d.ID, &d.TenantID, &d.ProjectID, &d.ModelRecordID,
 		&d.ModelVersionID, &d.Name, &d.Namespace, &d.Status, &d.DesiredReplicas,
-		&d.ServingEndpoint, &d.CreatedAt, &d.UpdatedAt,
+		&d.ServingEndpoint, &d.FailureReason, &d.CreatedAt, &d.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrDeploymentNotFound
@@ -115,12 +115,12 @@ func (s *PostgresDeploymentStore) GetDeployment(ctx context.Context, id string) 
 	return &d, nil
 }
 
-func (s *PostgresDeploymentStore) UpdateDeploymentStatus(ctx context.Context, id, status, endpoint string) error {
+func (s *PostgresDeploymentStore) UpdateDeploymentStatus(ctx context.Context, id, status, endpoint, failureReason string) error {
 	tag, err := s.db.Exec(ctx, `
 		UPDATE deployments
-		SET status = $1, serving_endpoint = NULLIF($2, ''), updated_at = now()
-		WHERE id = $3::uuid`,
-		status, endpoint, id,
+		SET status = $1, serving_endpoint = NULLIF($2, ''), failure_reason = NULLIF($3, ''), updated_at = now()
+		WHERE id = $4::uuid`,
+		status, endpoint, failureReason, id,
 	)
 	if err != nil {
 		return fmt.Errorf("update deployment status: %w", err)
