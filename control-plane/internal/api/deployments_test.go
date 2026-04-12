@@ -371,6 +371,46 @@ func TestDeploymentsAPI_Rollback_UpdatesGauge(t *testing.T) {
 	}
 }
 
+// TestDeploymentsAPI_Rollback_ClearsFailureReason verifies that a deployment that
+// previously failed (carrying a failure_reason) has that field cleared after rollback,
+// so a recovered deployment does not surface stale error metadata.
+func TestDeploymentsAPI_Rollback_ClearsFailureReason(t *testing.T) {
+	svc := &mockDeploymentsService{
+		getResult: &deployments.Deployment{
+			ID: "dep-rfr", Status: "failed",
+			FailureReason: `init container "model-loader": artifact not found`,
+		},
+		rollbackResult: &deployments.Deployment{
+			ID: "dep-rfr", Status: "pending", FailureReason: "",
+		},
+	}
+	handler, token := setupDeploymentsAPITest(t, svc)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/deployments/dep-rfr/rollback", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var wrapper struct {
+		Deployment deployments.Deployment `json:"deployment"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&wrapper); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	resp := wrapper.Deployment
+	if resp.FailureReason != "" {
+		t.Errorf("expected failure_reason to be empty after rollback, got %q", resp.FailureReason)
+	}
+	if resp.Status != "pending" {
+		t.Errorf("expected status pending after rollback, got %q", resp.Status)
+	}
+}
+
 // TestInternalStatus_DeletedNotInGauge verifies that the deleting→deleted transition
 // decrements deleting but does NOT increment deleted, matching the startup snapshot
 // which excludes deleted rows. This prevents the series from appearing at runtime
