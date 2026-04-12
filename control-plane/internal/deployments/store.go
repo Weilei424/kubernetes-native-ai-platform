@@ -200,7 +200,7 @@ func (s *PostgresDeploymentStore) RollbackDeployment(ctx context.Context, deploy
 	var d Deployment
 	if err := tx.QueryRow(ctx, `
 		UPDATE deployments
-		SET model_version_id = $1::uuid, status = 'pending', serving_endpoint = NULL, updated_at = now()
+		SET model_version_id = $1::uuid, status = 'pending', serving_endpoint = NULL, failure_reason = NULL, updated_at = now()
 		WHERE id = $2::uuid
 		RETURNING id::text, tenant_id::text, project_id::text, model_record_id::text,
 		          model_version_id::text, name, namespace, status, desired_replicas,
