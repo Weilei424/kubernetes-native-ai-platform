@@ -101,8 +101,8 @@ func (s *Service) Delete(ctx context.Context, id, tenantID string) error {
 }
 
 // UpdateStatus is called from the internal API handler to persist operator-reported status.
-func (s *Service) UpdateStatus(ctx context.Context, id, status, endpoint string) error {
-	return s.store.UpdateDeploymentStatus(ctx, id, status, endpoint)
+func (s *Service) UpdateStatus(ctx context.Context, id, status, endpoint, failureReason string) error {
+	return s.store.UpdateDeploymentStatus(ctx, id, status, endpoint, failureReason)
 }
 
 // Rollback rolls a deployment back to a specific revision (or the previous one if revision == 0).
