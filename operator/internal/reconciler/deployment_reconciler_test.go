@@ -11,6 +11,7 @@ import (
 
 	"github.com/Weilei424/kubernetes-native-ai-platform/operator/internal/reconciler"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -173,6 +174,57 @@ func TestDeploymentReconciler_TritonReadinessFail_StaysProvisioning(t *testing.T
 
 	if sentRunning {
 		t.Error("reconciler advanced to 'running' despite no running pod in the cluster")
+	}
+}
+
+// TestDeploymentReconciler_MissingArtifact_ReportsFailed verifies the missing-artifact
+// failure path: when the Triton pod enters PodFailed phase (e.g., the model-loader init
+// container can't download the artifact), the reconciler reports status="failed" to the
+// control plane and does not advance the deployment to "running".
+func TestDeploymentReconciler_MissingArtifact_ReportsFailed(t *testing.T) {
+	var reportedStatus string
+
+	fakeCP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"deployments": []map[string]any{{
+					"id": "dep-missing-art", "name": "test", "namespace": "default",
+					"status": "pending", "desired_replicas": 1,
+					"artifact_uri": "s3://bucket/missing-model", "model_name": "resnet",
+				}},
+			})
+		} else if r.Method == http.MethodPatch {
+			var body map[string]string
+			json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+			reportedStatus = body["status"]
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer fakeCP.Close()
+
+	// Pre-create the Triton pod in PodFailed phase to simulate an init container
+	// that could not download the model artifact from the artifact store.
+	failedPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      reconciler.TritonPodName("dep-missing-art"),
+			Namespace: "default",
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodFailed},
+	}
+
+	dr := &reconciler.DeploymentReconciler{
+		Client:          fake.NewFakeClient(failedPod),
+		ControlPlaneURL: fakeCP.URL,
+		HTTPClient:      fakeCP.Client(),
+		PollInterval:    20 * time.Millisecond,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	_ = dr.Start(ctx)
+
+	if reportedStatus != "failed" {
+		t.Errorf("expected reported status 'failed' for PodFailed phase, got %q", reportedStatus)
 	}
 }
 
