@@ -41,7 +41,7 @@ func (m *mockDeploymentStore) CreateDeployment(_ context.Context, d *deployments
 func (m *mockDeploymentStore) GetDeployment(_ context.Context, _ string) (*deployments.Deployment, error) {
 	return m.getResult, m.getErr
 }
-func (m *mockDeploymentStore) UpdateDeploymentStatus(_ context.Context, _, _, _ string) error {
+func (m *mockDeploymentStore) UpdateDeploymentStatus(_ context.Context, _, _, _, _ string) error {
 	return m.updateErr
 }
 func (m *mockDeploymentStore) DeleteDeployment(_ context.Context, _ string) error {
