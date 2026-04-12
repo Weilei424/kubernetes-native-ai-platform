@@ -45,6 +45,13 @@ var (
 		Help: "Total number of automatic training run retries.",
 	})
 
+	// TrainingRunCompletions counts terminal training run outcomes by result.
+	// Use result="succeeded" and result="failed" to compute success rate in Grafana.
+	TrainingRunCompletions = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "training_run_completions_total",
+		Help: "Total number of training runs that reached a terminal state.",
+	}, []string{"result"})
+
 	// DeploymentCount tracks deployments by status.
 	DeploymentCount = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "deployment_count",
