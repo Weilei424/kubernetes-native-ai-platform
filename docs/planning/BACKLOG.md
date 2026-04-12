@@ -116,6 +116,7 @@
 
 ### Phase 5 Execution Checklist — Polish
 
+- [x] **[Plan]** Implementation plan written (`docs/superpowers/plans/2026-04-12-phase5-polish.md`)
 - [ ] `platformctl` CLI: `train submit`, `train status`
 - [ ] `platformctl` CLI: `model register`, `model promote`
 - [ ] `platformctl` CLI: `deploy create`, `deploy status`
