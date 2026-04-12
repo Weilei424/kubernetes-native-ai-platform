@@ -37,6 +37,7 @@ type deploymentRecord struct {
 type statusUpdatePayload struct {
 	Status          string `json:"status"`
 	ServingEndpoint string `json:"serving_endpoint,omitempty"`
+	FailureReason   string `json:"failure_reason,omitempty"`
 }
 
 // DeploymentReconciler polls the control plane for pending deployments and
@@ -166,7 +167,7 @@ func (r *DeploymentReconciler) reconcileOne(ctx context.Context, dep *deployment
 	// Map pod phase → platform status and report if changed.
 	if pod == nil {
 		// Pod was just created; report provisioning.
-		return r.reportStatus(ctx, dep.ID, "provisioning", "")
+		return r.reportStatus(ctx, dep.ID, "provisioning", "", "")
 	}
 
 	newStatus := MapPodPhase(pod.Status.Phase)
@@ -178,7 +179,31 @@ func (r *DeploymentReconciler) reconcileOne(ctx context.Context, dep *deployment
 	if newStatus == "running" {
 		endpoint = ServingEndpoint(dep.ID, dep.Namespace)
 	}
-	return r.reportStatus(ctx, dep.ID, newStatus, endpoint)
+	failureReason := ""
+	if newStatus == "failed" {
+		failureReason = extractPodFailureReason(pod)
+	}
+	return r.reportStatus(ctx, dep.ID, newStatus, endpoint, failureReason)
+}
+
+// extractPodFailureReason returns an actionable failure message from a failed pod.
+// It checks init container statuses first (a missing artifact manifests as an init
+// container failure), then falls back to the pod-level message or reason.
+func extractPodFailureReason(pod *corev1.Pod) string {
+	for _, cs := range pod.Status.InitContainerStatuses {
+		if t := cs.State.Terminated; t != nil && t.ExitCode != 0 {
+			if t.Message != "" {
+				return fmt.Sprintf("init container %q: %s", cs.Name, t.Message)
+			}
+			if t.Reason != "" {
+				return fmt.Sprintf("init container %q: %s", cs.Name, t.Reason)
+			}
+		}
+	}
+	if pod.Status.Message != "" {
+		return pod.Status.Message
+	}
+	return pod.Status.Reason
 }
 
 // reconcileDelete removes the Kubernetes Pod and Service for a deployment that
@@ -204,7 +229,7 @@ func (r *DeploymentReconciler) reconcileDelete(ctx context.Context, dep *deploym
 		return fmt.Errorf("get service for deletion: %w", err)
 	}
 
-	return r.reportStatus(ctx, dep.ID, "deleted", "")
+	return r.reportStatus(ctx, dep.ID, "deleted", "", "")
 }
 
 func (r *DeploymentReconciler) buildPod(dep *deploymentRecord) *corev1.Pod {
@@ -329,8 +354,8 @@ func (r *DeploymentReconciler) listPendingDeployments(ctx context.Context) ([]*d
 	return body.Deployments, nil
 }
 
-func (r *DeploymentReconciler) reportStatus(ctx context.Context, id, status, endpoint string) error {
-	payload := statusUpdatePayload{Status: status, ServingEndpoint: endpoint}
+func (r *DeploymentReconciler) reportStatus(ctx context.Context, id, status, endpoint, failureReason string) error {
+	payload := statusUpdatePayload{Status: status, ServingEndpoint: endpoint, FailureReason: failureReason}
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return err
