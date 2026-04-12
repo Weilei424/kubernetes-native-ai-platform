@@ -103,8 +103,8 @@ Development follows a CPU-first local approach before cloud and GPU enhancements
 **Deliverables:**
 - Operator hardening: local/prod config profiles, leader election via controller-runtime, operator metrics endpoint (`operator_reconcile_duration_seconds`, `operator_reconcile_errors_total`), retry delay config wiring — webhook admission validation and full informer cache are deferred to a future hardening pass
 - Prometheus metrics: API latency, queue depth, job admission failures, reconciliation duration, deployment counts
-- Training metrics: run duration, worker count, retry/failure count, success rate
-- Serving metrics: request rate, p50/p95/p99 latency, error rate, replica count, model load success/failure
+- Training metrics: run duration, retry count, completion counter by result (succeeded/failed) enabling success-rate computation — training worker count deferred (requires K8s pod introspection per RayJob)
+- Serving metrics: request rate, p50/p95/p99 latency, error rate, and model load success/failure are exposed natively by Triton's own /metrics endpoint — no platform instrumentation needed; replica count tracked implicitly via deployment_count gauge
 - Structured logging with correlation IDs and entity IDs on all services
 - Grafana dashboards: control plane, training, Triton serving, resource consumption
 - Job retry logic and failure state handling
