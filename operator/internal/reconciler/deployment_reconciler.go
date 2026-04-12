@@ -15,6 +15,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/Weilei424/kubernetes-native-ai-platform/operator/internal/observability"
 )
 
 // DefaultPollInterval is how often the reconciler polls the control plane.
@@ -46,6 +48,8 @@ type DeploymentReconciler struct {
 	HTTPClient      *http.Client
 	MinioEndpoint   string
 	PollInterval    time.Duration
+	RetryBaseDelay  time.Duration
+	RetryMaxDelay   time.Duration
 }
 
 // Start implements manager.Runnable. It is called by the manager after the
@@ -70,16 +74,20 @@ func (r *DeploymentReconciler) Start(ctx context.Context) error {
 }
 
 func (r *DeploymentReconciler) reconcileAll(ctx context.Context) {
+	start := time.Now()
 	deps, err := r.listPendingDeployments(ctx)
 	if err != nil {
+		observability.ReconcileErrors.WithLabelValues("deployment").Inc()
 		slog.Error("deployment reconciler: list pending", "error", err)
 		return
 	}
 	for _, dep := range deps {
 		if err := r.reconcileOne(ctx, dep); err != nil {
+			observability.ReconcileErrors.WithLabelValues("deployment").Inc()
 			slog.Error("deployment reconciler: reconcile", "id", dep.ID, "error", err)
 		}
 	}
+	observability.ReconcileDuration.WithLabelValues("deployment").Observe(time.Since(start).Seconds())
 }
 
 func (r *DeploymentReconciler) reconcileOne(ctx context.Context, dep *deploymentRecord) error {
