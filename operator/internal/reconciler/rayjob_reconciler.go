@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/Weilei424/kubernetes-native-ai-platform/operator/internal/observability"
 )
 
 // RayJobReconciler watches RayJob objects and reports status back to the
@@ -25,6 +28,16 @@ type RayJobReconciler struct {
 
 // Reconcile is called by controller-runtime whenever a RayJob changes.
 func (r *RayJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	start := time.Now()
+	result, err := r.reconcile(ctx, req)
+	observability.ReconcileDuration.WithLabelValues("rayjob").Observe(time.Since(start).Seconds())
+	if err != nil {
+		observability.ReconcileErrors.WithLabelValues("rayjob").Inc()
+	}
+	return result, err
+}
+
+func (r *RayJobReconciler) reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(rayJobGVK())
 	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
