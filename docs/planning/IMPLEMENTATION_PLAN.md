@@ -111,7 +111,8 @@ Development follows a CPU-first local approach before cloud and GPU enhancements
 - Deployment revisions and rollback support
 - Events API (`GET /v1/events`)
 - Quota visibility API (`GET /v1/quota`)
-- Failure test suite: bad image, quota exceeded, missing artifact, invalid deployment, Triton readiness failure
+- Failure test suite: bad image (RayJob ImagePullBackOff → FAILED + failure_reason propagated), quota exceeded (422 at admission), missing artifact (PodFailed → deployment failed with init-container failure_reason), invalid deployment (non-production model version → 422), Triton readiness failure (pod not running → stays provisioning), retry exhaustion (job stays FAILED after max_retries), rollback clears stale failure_reason (failure metadata does not persist across recovery)
+- Migration 014: `failure_reason TEXT` column on deployments; `RollbackDeployment` clears it atomically
 
 **Success criteria:**
 - All key platform operations emit metrics visible in Grafana
