@@ -80,7 +80,7 @@ func TestReportStatus_Success(t *testing.T) {
 
 	r := newTestReconciler(srv.URL)
 	endpoint := "triton-dep-1.default.svc.cluster.local:8000"
-	if err := r.reportStatus(context.Background(), "dep-1", "running", endpoint); err != nil {
+	if err := r.reportStatus(context.Background(), "dep-1", "running", endpoint, ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -104,7 +104,7 @@ func TestReportStatus_ServerError(t *testing.T) {
 	defer srv.Close()
 
 	r := newTestReconciler(srv.URL)
-	err := r.reportStatus(context.Background(), "dep-1", "running", "")
+	err := r.reportStatus(context.Background(), "dep-1", "running", "", "")
 	if err == nil {
 		t.Fatal("expected error for non-200 response, got nil")
 	}
