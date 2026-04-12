@@ -3,6 +3,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	opcfg "github.com/Weilei424/kubernetes-native-ai-platform/operator/internal/config"
+	"github.com/Weilei424/kubernetes-native-ai-platform/operator/internal/observability"
 	"github.com/Weilei424/kubernetes-native-ai-platform/operator/internal/reconciler"
 )
 
@@ -74,11 +76,25 @@ func main() {
 		HTTPClient:      httpClient,
 		MinioEndpoint:   os.Getenv("MINIO_ENDPOINT"),
 		PollInterval:    cfg.PollInterval,
+		RetryBaseDelay:  cfg.RetryBaseDelay,
+		RetryMaxDelay:   cfg.RetryMaxDelay,
 	}
 	if err := mgr.Add(dr); err != nil {
 		slog.Error("unable to add deployment reconciler", "error", err)
 		os.Exit(1)
 	}
+
+	// Metrics server — serves /metrics on the configured port.
+	metricsAddr := fmt.Sprintf(":%d", cfg.MetricsPort)
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", observability.MetricsHandler())
+	metricsServer := &http.Server{Addr: metricsAddr, Handler: metricsMux}
+	go func() {
+		slog.Info("operator metrics server starting", "addr", metricsAddr)
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("operator metrics server failed", "error", err)
+		}
+	}()
 
 	slog.Info("operator starting", "control_plane_url", controlPlaneURL)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
