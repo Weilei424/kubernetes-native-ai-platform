@@ -4,10 +4,12 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/deployments"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/events"
@@ -20,6 +22,9 @@ import (
 // deploymentStore and eventStore may be nil; their features are only active when non-nil.
 func NewInternalRouter(store jobs.Store, publisher events.Publisher, deploymentStore deployments.Store, eventStore *events.EventStore) http.Handler {
 	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(observability.RequestLogger(slog.Default()))
+
 	h := &internalHandler{store: store, publisher: publisher, deploymentStore: deploymentStore, eventStore: eventStore}
 	r.Patch("/internal/v1/jobs/{id}/status", h.handleUpdateJobStatus)
 	if deploymentStore != nil {
@@ -67,9 +72,15 @@ func (h *internalHandler) handleUpdateJobStatus(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Emit run duration when a run reaches a terminal state.
+	// Emit run duration and completion outcome when a run reaches a terminal state.
 	if currentRun != nil && currentRun.StartedAt != nil {
 		observability.TrainingRunDuration.Observe(time.Since(*currentRun.StartedAt).Seconds())
+	}
+	switch req.Status {
+	case "SUCCEEDED":
+		observability.TrainingRunCompletions.WithLabelValues("succeeded").Inc()
+	case "FAILED":
+		observability.TrainingRunCompletions.WithLabelValues("failed").Inc()
 	}
 
 	if h.eventStore != nil {
