@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -13,6 +12,7 @@ import (
 
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/auth"
 	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/models"
+	"github.com/Weilei424/kubernetes-native-ai-platform/control-plane/internal/observability"
 )
 
 // ModelsService is the interface the handler depends on (exported for test use).
@@ -49,7 +49,7 @@ func (h *modelsHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, models.ErrRunNotSucceeded), errors.Is(err, models.ErrRunNoMLflowID):
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 		default:
-			slog.Error("register model", "error", err)
+			observability.FromContext(r.Context()).Error("register model", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		}
 		return
@@ -66,7 +66,7 @@ func (h *modelsHandler) handleGetModel(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, models.ErrModelNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "model not found"})
 		} else {
-			slog.Error("get model", "error", err)
+			observability.FromContext(r.Context()).Error("get model", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		}
 		return
@@ -93,7 +93,7 @@ func (h *modelsHandler) handleGetModelVersion(w http.ResponseWriter, r *http.Req
 		if errors.Is(err, models.ErrVersionNotFound) || errors.Is(err, models.ErrModelNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "version not found"})
 		} else {
-			slog.Error("get model version", "error", err)
+			observability.FromContext(r.Context()).Error("get model version", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		}
 		return
@@ -132,7 +132,7 @@ func (h *modelsHandler) handlePromote(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, models.ErrVersionArchived):
 			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		default:
-			slog.Error("promote model version", "error", err)
+			observability.FromContext(r.Context()).Error("promote model version", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		}
 		return
@@ -150,7 +150,7 @@ func (h *modelsHandler) handleResolveAlias(w http.ResponseWriter, r *http.Reques
 		if errors.Is(err, models.ErrAliasNotFound) || errors.Is(err, models.ErrModelNotFound) || errors.Is(err, models.ErrVersionNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "alias not found"})
 		} else {
-			slog.Error("resolve model alias", "error", err)
+			observability.FromContext(r.Context()).Error("resolve model alias", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		}
 		return
