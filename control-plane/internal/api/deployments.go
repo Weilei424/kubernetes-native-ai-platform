@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -55,7 +54,7 @@ func (h *deploymentsHandler) handleCreate(w http.ResponseWriter, r *http.Request
 		case errors.Is(err, deployments.ErrDuplicateDeploymentName):
 			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		default:
-			slog.Error("create deployment", "error", err)
+			observability.FromContext(r.Context()).Error("create deployment", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		}
 		return
@@ -74,7 +73,7 @@ func (h *deploymentsHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, deployments.ErrDeploymentNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "deployment not found"})
 		} else {
-			slog.Error("get deployment", "error", err)
+			observability.FromContext(r.Context()).Error("get deployment", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		}
 		return
@@ -93,7 +92,7 @@ func (h *deploymentsHandler) handleDelete(w http.ResponseWriter, r *http.Request
 		if errors.Is(err, deployments.ErrDeploymentNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "deployment not found"})
 		} else {
-			slog.Error("delete deployment", "error", err)
+			observability.FromContext(r.Context()).Error("delete deployment", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		}
 		return
@@ -128,7 +127,7 @@ func (h *deploymentsHandler) handleRollback(w http.ResponseWriter, r *http.Reque
 		case errors.Is(err, deployments.ErrNoRevisionToRollback):
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 		default:
-			slog.Error("rollback deployment", "id", id, "error", err)
+			observability.FromContext(r.Context()).Error("rollback deployment", "id", id, "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		}
 		return

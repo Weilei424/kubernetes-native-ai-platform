@@ -4,7 +4,6 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -63,7 +62,7 @@ func (h *internalHandler) handleUpdateJobStatus(w http.ResponseWriter, r *http.R
 	}
 
 	if err := h.store.TransitionJobStatus(r.Context(), jobID, job.Status, req.Status, req.FailureReason); err != nil {
-		slog.Error("internal: transition status", "job_id", jobID, "from", job.Status, "to", req.Status, "error", err)
+		observability.FromContext(r.Context()).Error("internal: transition status", "job_id", jobID, "from", job.Status, "to", req.Status, "error", err)
 		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return
 	}
@@ -84,13 +83,13 @@ func (h *internalHandler) handleUpdateJobStatus(w http.ResponseWriter, r *http.R
 			TenantID: job.TenantID, EntityType: "job", EntityID: jobID,
 			EventType: req.Status, Payload: payload,
 		}); err != nil {
-			slog.Warn("internal: write job event", "job_id", jobID, "error", err)
+			observability.FromContext(r.Context()).Warn("internal: write job event", "job_id", jobID, "error", err)
 		}
 	}
 
 	if req.MLflowRunID != nil {
 		if err := h.store.SetMLflowRunID(r.Context(), jobID, *req.MLflowRunID); err != nil {
-			slog.Warn("internal: set mlflow run id", "job_id", jobID, "error", err)
+			observability.FromContext(r.Context()).Warn("internal: set mlflow run id", "job_id", jobID, "error", err)
 		}
 	}
 
@@ -98,15 +97,15 @@ func (h *internalHandler) handleUpdateJobStatus(w http.ResponseWriter, r *http.R
 	if req.Status == "FAILED" {
 		newCount, incErr := h.store.IncrementRetryCount(r.Context(), jobID)
 		if incErr != nil {
-			slog.Warn("internal: increment retry count", "job_id", jobID, "error", incErr)
+			observability.FromContext(r.Context()).Warn("internal: increment retry count", "job_id", jobID, "error", incErr)
 		} else if newCount <= job.MaxRetries {
 			if _, runErr := h.store.CreateRetryRun(r.Context(), jobID, job.TenantID); runErr != nil {
-				slog.Error("internal: create retry run", "job_id", jobID, "error", runErr)
+				observability.FromContext(r.Context()).Error("internal: create retry run", "job_id", jobID, "error", runErr)
 			} else if transErr := h.store.TransitionJobStatus(r.Context(), jobID, "FAILED", "QUEUED", nil); transErr != nil {
-				slog.Error("internal: re-queue job for retry", "job_id", jobID, "error", transErr)
+				observability.FromContext(r.Context()).Error("internal: re-queue job for retry", "job_id", jobID, "error", transErr)
 			} else {
 				observability.TrainingRunRetries.Inc()
-				slog.Info("internal: job re-queued for retry", "job_id", jobID, "retry_count", newCount)
+				observability.FromContext(r.Context()).Info("internal: job re-queued for retry", "job_id", jobID, "retry_count", newCount)
 			}
 		}
 	}
@@ -120,7 +119,7 @@ func (h *internalHandler) handleUpdateJobStatus(w http.ResponseWriter, r *http.R
 		FailureReason: req.FailureReason,
 	}
 	if err := h.publisher.Publish(r.Context(), topic, evt); err != nil {
-		slog.Warn("internal: publish event", "topic", topic, "job_id", jobID, "error", err)
+		observability.FromContext(r.Context()).Warn("internal: publish event", "topic", topic, "job_id", jobID, "error", err)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": req.Status})
@@ -129,7 +128,7 @@ func (h *internalHandler) handleUpdateJobStatus(w http.ResponseWriter, r *http.R
 func (h *internalHandler) handleListPendingDeployments(w http.ResponseWriter, r *http.Request) {
 	deps, err := h.deploymentStore.ListPendingDeployments(r.Context())
 	if err != nil {
-		slog.Error("internal: list pending deployments", "error", err)
+		observability.FromContext(r.Context()).Error("internal: list pending deployments", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
@@ -158,7 +157,7 @@ func (h *internalHandler) handleUpdateDeploymentStatus(w http.ResponseWriter, r 
 		if errors.Is(err, deployments.ErrDeploymentNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "deployment not found"})
 		} else {
-			slog.Error("internal: get deployment for transition", "id", id, "error", err)
+			observability.FromContext(r.Context()).Error("internal: get deployment for transition", "id", id, "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		}
 		return
@@ -174,7 +173,7 @@ func (h *internalHandler) handleUpdateDeploymentStatus(w http.ResponseWriter, r 
 		if errors.Is(err, deployments.ErrDeploymentNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "deployment not found"})
 		} else {
-			slog.Error("internal: update deployment status", "id", id, "status", req.Status, "error", err)
+			observability.FromContext(r.Context()).Error("internal: update deployment status", "id", id, "status", req.Status, "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		}
 		return
@@ -190,7 +189,7 @@ func (h *internalHandler) handleUpdateDeploymentStatus(w http.ResponseWriter, r 
 			TenantID: current.TenantID, EntityType: "deployment", EntityID: id,
 			EventType: req.Status, Payload: payload,
 		}); err != nil {
-			slog.Warn("internal: write deployment event", "deployment_id", id, "error", err)
+			observability.FromContext(r.Context()).Warn("internal: write deployment event", "deployment_id", id, "error", err)
 		}
 	}
 

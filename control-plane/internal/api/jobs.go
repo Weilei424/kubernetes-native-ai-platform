@@ -4,7 +4,6 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -36,7 +35,7 @@ func (h *jobsHandler) handleSubmitJob(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 			return
 		}
-		slog.Error("check project ownership", "project_id", req.ProjectID, "tenant_id", tenantID, "error", err)
+		observability.FromContext(r.Context()).Error("check project ownership", "project_id", req.ProjectID, "tenant_id", tenantID, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
@@ -59,13 +58,13 @@ func (h *jobsHandler) handleSubmitJob(w http.ResponseWriter, r *http.Request) {
 	// Quota check at submission time (pre-check; dispatcher re-checks before promotion)
 	cpuQuota, memQuota, err := h.store.GetTenantQuota(r.Context(), tenantID)
 	if err != nil {
-		slog.Error("get tenant quota", "tenant_id", tenantID, "error", err)
+		observability.FromContext(r.Context()).Error("get tenant quota", "tenant_id", tenantID, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
 	activeJobs, err := h.store.ListNonTerminalJobs(r.Context(), tenantID)
 	if err != nil {
-		slog.Error("list active jobs", "tenant_id", tenantID, "error", err)
+		observability.FromContext(r.Context()).Error("list active jobs", "tenant_id", tenantID, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
@@ -111,7 +110,7 @@ func (h *jobsHandler) handleSubmitJob(w http.ResponseWriter, r *http.Request) {
 	run := &jobs.TrainingRun{TenantID: tenantID, Status: "PENDING"}
 
 	if err := h.store.CreateJobWithRun(r.Context(), job, run); err != nil {
-		slog.Error("create job with run", "error", err)
+		observability.FromContext(r.Context()).Error("create job with run", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
@@ -119,7 +118,7 @@ func (h *jobsHandler) handleSubmitJob(w http.ResponseWriter, r *http.Request) {
 	// Publish PENDING event (best-effort)
 	evt := jobs.JobEvent{JobID: job.ID, TenantID: tenantID, Status: "PENDING"}
 	if err := h.publisher.Publish(r.Context(), "platform.job.pending", evt); err != nil {
-		slog.Warn("publish job.pending", "job_id", job.ID, "error", err)
+		observability.FromContext(r.Context()).Warn("publish job.pending", "job_id", job.ID, "error", err)
 	}
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "run_id": run.ID})
@@ -129,7 +128,7 @@ func (h *jobsHandler) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	tenantID := auth.TenantIDFromContext(r.Context())
 	list, err := h.store.ListJobs(r.Context(), tenantID)
 	if err != nil {
-		slog.Error("list jobs", "error", err)
+		observability.FromContext(r.Context()).Error("list jobs", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
