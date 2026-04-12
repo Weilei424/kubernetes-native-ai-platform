@@ -256,6 +256,11 @@ func TestStore_RollbackDeployment(t *testing.T) {
 		t.Fatalf("expected revision 1 after create, got %d", rev1)
 	}
 
+	// Simulate a prior failure: set failure_reason so rollback must clear it.
+	if err := store.UpdateDeploymentStatus(ctx, d.ID, "failed", "", "init container \"model-loader\": artifact not found"); err != nil {
+		t.Fatalf("set failed status before rollback: %v", err)
+	}
+
 	// Rollback using the same model version (simulates reverting to rev 1 from rev 1+).
 	rolled, err := store.RollbackDeployment(ctx, d.ID, verID)
 	if err != nil {
@@ -271,6 +276,15 @@ func TestStore_RollbackDeployment(t *testing.T) {
 	}
 	if rolled.ServingEndpoint != "" {
 		t.Errorf("expected serving_endpoint to be cleared, got %q", rolled.ServingEndpoint)
+	}
+
+	// failure_reason must be cleared — a pending deployment must not carry stale error metadata.
+	got, err := store.GetDeployment(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("get deployment after rollback: %v", err)
+	}
+	if got.FailureReason != "" {
+		t.Errorf("expected failure_reason to be cleared after rollback, got %q", got.FailureReason)
 	}
 
 	// A new revision (2) must now exist.
