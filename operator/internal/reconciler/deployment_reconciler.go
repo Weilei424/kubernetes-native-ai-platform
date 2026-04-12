@@ -50,6 +50,10 @@ type DeploymentReconciler struct {
 	PollInterval    time.Duration
 	RetryBaseDelay  time.Duration
 	RetryMaxDelay   time.Duration
+
+	// per-deployment failure backoff state (single-goroutine access, no mutex needed)
+	failureCounts map[string]int
+	nextRetryAt   map[string]time.Time
 }
 
 // Start implements manager.Runnable. It is called by the manager after the
@@ -59,6 +63,9 @@ func (r *DeploymentReconciler) Start(ctx context.Context) error {
 	if interval == 0 {
 		interval = DefaultPollInterval
 	}
+	r.failureCounts = make(map[string]int)
+	r.nextRetryAt = make(map[string]time.Time)
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -81,13 +88,46 @@ func (r *DeploymentReconciler) reconcileAll(ctx context.Context) {
 		slog.Error("deployment reconciler: list pending", "error", err)
 		return
 	}
+	now := time.Now()
 	for _, dep := range deps {
+		if retryAt, ok := r.nextRetryAt[dep.ID]; ok && now.Before(retryAt) {
+			continue // still within backoff window
+		}
 		if err := r.reconcileOne(ctx, dep); err != nil {
 			observability.ReconcileErrors.WithLabelValues("deployment").Inc()
 			slog.Error("deployment reconciler: reconcile", "id", dep.ID, "error", err)
+			r.recordFailure(dep.ID)
+		} else {
+			// successful reconciliation — clear any accumulated backoff state
+			delete(r.failureCounts, dep.ID)
+			delete(r.nextRetryAt, dep.ID)
 		}
 	}
 	observability.ReconcileDuration.WithLabelValues("deployment").Observe(time.Since(start).Seconds())
+}
+
+// recordFailure updates the per-deployment backoff state after a reconcile error.
+// Delay grows exponentially from RetryBaseDelay up to RetryMaxDelay.
+func (r *DeploymentReconciler) recordFailure(id string) {
+	base := r.RetryBaseDelay
+	if base == 0 {
+		base = 5 * time.Second
+	}
+	max := r.RetryMaxDelay
+	if max == 0 {
+		max = 30 * time.Second
+	}
+	r.failureCounts[id]++
+	delay := base
+	for i := 1; i < r.failureCounts[id]; i++ {
+		delay *= 2
+		if delay >= max {
+			delay = max
+			break
+		}
+	}
+	r.nextRetryAt[id] = time.Now().Add(delay)
+	slog.Warn("deployment reconciler: backing off", "id", id, "failures", r.failureCounts[id], "retry_after", delay)
 }
 
 func (r *DeploymentReconciler) reconcileOne(ctx context.Context, dep *deploymentRecord) error {
