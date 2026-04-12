@@ -134,7 +134,7 @@ func TestDeploymentStore_UpdateStatus(t *testing.T) {
 	store.CreateDeployment(ctx, d)
 
 	endpoint := "triton-" + d.ID + ".default.svc.cluster.local:8000"
-	if err := store.UpdateDeploymentStatus(ctx, d.ID, "running", endpoint); err != nil {
+	if err := store.UpdateDeploymentStatus(ctx, d.ID, "running", endpoint, ""); err != nil {
 		t.Fatalf("update status: %v", err)
 	}
 
@@ -222,7 +222,7 @@ func TestDeploymentStore_DeleteDeployment(t *testing.T) {
 
 func TestDeploymentStore_UpdateStatus_NotFound(t *testing.T) {
 	store, _, _, _, _ := setupDeploymentStoreTest(t)
-	err := store.UpdateDeploymentStatus(context.Background(), "00000000-0000-0000-0000-000000000000", "running", "")
+	err := store.UpdateDeploymentStatus(context.Background(), "00000000-0000-0000-0000-000000000000", "running", "", "")
 	if !errors.Is(err, deployments.ErrDeploymentNotFound) {
 		t.Fatalf("expected ErrDeploymentNotFound, got %v", err)
 	}
