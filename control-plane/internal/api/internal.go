@@ -180,7 +180,7 @@ func (h *internalHandler) handleUpdateDeploymentStatus(w http.ResponseWriter, r 
 		return
 	}
 
-	if err := h.deploymentStore.UpdateDeploymentStatus(r.Context(), id, req.Status, req.ServingEndpoint); err != nil {
+	if err := h.deploymentStore.UpdateDeploymentStatus(r.Context(), id, req.Status, req.ServingEndpoint, req.FailureReason); err != nil {
 		if errors.Is(err, deployments.ErrDeploymentNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "deployment not found"})
 		} else {
