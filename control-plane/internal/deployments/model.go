@@ -29,6 +29,7 @@ type Deployment struct {
 	Status          string    `json:"status"`
 	DesiredReplicas int       `json:"desired_replicas"`
 	ServingEndpoint string    `json:"serving_endpoint,omitempty"`
+	FailureReason   string    `json:"failure_reason,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 
@@ -60,6 +61,7 @@ type CreateDeploymentRequest struct {
 type UpdateStatusRequest struct {
 	Status          string `json:"status"`
 	ServingEndpoint string `json:"serving_endpoint,omitempty"`
+	FailureReason   string `json:"failure_reason,omitempty"`
 }
 
 // RollbackRequest is the body for POST /v1/deployments/:id/rollback.
