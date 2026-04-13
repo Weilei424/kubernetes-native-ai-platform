@@ -1,0 +1,11 @@
+# examples/deployment-specs/resnet-prod.yaml
+# Deployment spec for the resnet50 production model.
+# Requires resnet50 model version 1 promoted to the production alias.
+#
+# Submit with:
+#   platformctl deploy create -f examples/deployment-specs/resnet-prod.yaml
+name: resnet50-prod
+model_name: resnet50
+model_version: 1
+namespace: aiplatform
+replicas: 1
