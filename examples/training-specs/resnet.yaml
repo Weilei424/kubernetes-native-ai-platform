@@ -1,0 +1,27 @@
+# examples/training-specs/resnet.yaml
+# Training job spec for the platform demo (DEMO_MODE=fast uses minimal-trainer image).
+# Adjust image tag to platform/resnet50-exporter:latest for DEMO_MODE=full.
+#
+# Submit with:
+#   platformctl train submit -f examples/training-specs/resnet.yaml
+name: resnet50-train-v1
+project_id: vision-demo
+
+runtime:
+  image: platform/minimal-trainer:latest
+  command: []
+  args: []
+  env:
+    MLFLOW_TRACKING_URI: http://mlflow.aiplatform.svc.cluster.local:5000
+    MINIO_ENDPOINT: http://minio.aiplatform.svc.cluster.local:9000
+    MINIO_ACCESS_KEY: minio
+    MINIO_SECRET_KEY: minio123
+    MINIO_BUCKET: models
+    NUM_WORKERS: "2"
+
+resources:
+  num_workers: 2
+  worker_cpu: "1"
+  worker_memory: "2Gi"
+  head_cpu: "1"
+  head_memory: "2Gi"
