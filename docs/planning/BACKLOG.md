@@ -117,14 +117,19 @@
 ### Phase 5 Execution Checklist — Polish
 
 - [x] **[Plan]** Implementation plan written (`docs/superpowers/plans/2026-04-12-phase5-polish.md`)
-- [ ] `platformctl` CLI: `train submit`, `train status`
-- [ ] `platformctl` CLI: `model register`, `model promote`
-- [ ] `platformctl` CLI: `deploy create`, `deploy status`
-- [ ] Python SDK: spec generation helpers, submission convenience, run metadata helpers
-- [ ] Example training specs (`examples/training-specs/resnet.yaml`)
-- [ ] Example deployment specs (`examples/deployment-specs/resnet-prod.yaml`)
-- [ ] Architecture diagrams
-- [ ] Runbooks
-- [ ] Scripted end-to-end demo
-- [ ] Documentation cleanup
-- [ ] End-to-end test: submit → train → register → promote → deploy → infer
+- [x] `platformctl` CLI: `train submit`, `train status` (`cli/cmd/train.go`)
+- [x] `platformctl` CLI: `model register`, `model promote` (`cli/cmd/model.go`)
+- [x] `platformctl` CLI: `deploy create`, `deploy status` (`cli/cmd/deploy.go`)
+- [x] Python SDK: spec generation helpers, submission convenience, run metadata helpers (`sdk/python/`)
+- [x] Example training specs (`examples/training-specs/resnet.yaml`)
+- [x] Example deployment specs (`examples/deployment-specs/resnet-prod.yaml`)
+- [x] Architecture diagrams (`docs/architecture/` — overview, training-flow, model-lifecycle, serving-flow)
+- [x] Runbooks (`docs/runbooks/` — local-setup, demo-walkthrough)
+- [x] Scripted end-to-end demo (`examples/demo-clients/demo.sh` — 9-act, asciinema-ready)
+- [x] Documentation cleanup (`README.md`)
+- [x] End-to-end test: submit → train → register → promote → deploy → infer (`control-plane/internal/api/e2e_test.go` — `TestE2E_FullLifecycle` PASS)
+- [x] Training runtime scripts + Docker images (`training-runtime/examples/minimal/`, `training-runtime/examples/resnet50/`)
+- [x] `make local-up` extended with KubeRay operator + `make demo-images` target (`infra/local/Makefile`)
+- [x] Operator extended to extract `mlflow_run_id` from Ray head pod logs (`operator/internal/reconciler/rayjob_reconciler.go`)
+
+**Phase 5 complete.**
