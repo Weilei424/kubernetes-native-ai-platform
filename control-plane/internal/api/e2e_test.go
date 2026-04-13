@@ -190,14 +190,12 @@ func TestE2E_FullLifecycle(t *testing.T) {
 	}
 
 	// Verify mlflow_run_id is stored.
-	// TrainingJob and TrainingRun have no json struct tags, so they serialize
-	// with Go's default PascalCase field names.
 	var statusOut struct {
 		Job struct {
-			Status string `json:"Status"`
+			Status string `json:"status"`
 		} `json:"job"`
 		Run struct {
-			MLflowRunID *string `json:"MLflowRunID"`
+			MLflowRunID *string `json:"mlflow_run_id"`
 		} `json:"run"`
 	}
 	decode(t, doPublic(t, "GET", "/v1/jobs/"+jobID, nil), &statusOut)
