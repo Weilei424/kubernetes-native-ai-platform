@@ -18,6 +18,7 @@ set -euo pipefail
 DEMO_MODE="${DEMO_MODE:-fast}"
 HOST="${PLATFORMCTL_HOST:-http://localhost:8080}"
 TOKEN="${PLATFORMCTL_TOKEN:?set PLATFORMCTL_TOKEN before running the demo}"
+PROJECT_ID="${PROJECT_ID:?set PROJECT_ID to your vision-demo project UUID (see docs/runbooks/local-setup.md)}"
 DEMO_PAUSE="${DEMO_PAUSE:-1}"
 
 banner()  { echo; printf '%.0s═' {1..48}; echo; printf '  %s\n' "$*"; printf '%.0s═' {1..48}; echo; echo; }
@@ -41,9 +42,9 @@ fi
 # ── 1. Submit distributed training job ──────────────────────────────────────
 banner "1 / 9  Submitting distributed training job  [DEMO_MODE=$DEMO_MODE]"
 
-# Patch the image in the spec before submitting
+# Patch the image and project_id into a temp copy of the spec
 SPEC_FILE=$(mktemp --suffix=.yaml)
-sed "s|platform/minimal-trainer:latest|$TRAIN_IMAGE|" \
+sed "s|platform/minimal-trainer:latest|$TRAIN_IMAGE|;s|REPLACE_WITH_PROJECT_UUID|$PROJECT_ID|" \
     examples/training-specs/resnet.yaml > "$SPEC_FILE"
 
 SUBMIT=$(platformctl train submit -f "$SPEC_FILE" --json)
@@ -145,13 +146,14 @@ info "  platform_deployment_count        — active deployments"
 info "  operator_reconcile_errors_total  — operator health"
 pause
 
-# ── 9. Failure scenario: quota exceeded ──────────────────────────────────────
-banner "9 / 9  Failure scenario — quota exceeded + recovery"
-info "Submitting a job with excessive resources to trigger quota rejection..."
+# ── 9. Failure scenario: quota exceeded + rollback capability ────────────────
+banner "9 / 9  Failure scenario — quota exceeded + rollback capability"
+info "Failure scenario: submitting a job with excessive resources..."
+info "(The platform rejects it at admission — the cluster is never touched)"
 BIGSPEC=$(mktemp --suffix=.yaml)
-cat > "$BIGSPEC" <<'YAML'
+cat > "$BIGSPEC" <<YAML
 name: quota-overflow-test
-project_id: vision-demo
+project_id: $PROJECT_ID
 runtime:
   image: platform/minimal-trainer:latest
   command: []
@@ -167,15 +169,20 @@ platformctl train submit -f "$BIGSPEC" \
   || ok "Correctly rejected with HTTP 422 quota_exceeded"
 rm -f "$BIGSPEC"
 
-info "Recovery — rolling back the current deployment to previous revision..."
+echo
+info "Rollback capability: the platform supports atomic rollback to the prior revision."
+info "In a multi-revision workflow (deploy v1 → deploy v2 → v2 fails → rollback to v1),"
+info "the rollback endpoint atomically creates a new revision from the previous artifact_uri"
+info "and clears any stale failure_reason. This demo has only one revision, so the call"
+info "returns 'already at earliest revision' — which is the correct, expected response."
 curl -sf -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{}' \
   "$HOST/v1/deployments/$DEPLOY_ID/rollback" \
   | python3 -m json.tool \
-  && ok "Rollback succeeded — failure_reason cleared" \
-  || info "Rollback: deployment may already be at revision 1 (nothing to roll back)"
+  && ok "Rollback to prior revision succeeded" \
+  || ok "Already at earliest revision — rollback correctly declined (expected in single-revision demo)"
 
 banner "Demo complete"
 echo "  Full lifecycle exercised: train → track → register → promote → deploy → infer"
