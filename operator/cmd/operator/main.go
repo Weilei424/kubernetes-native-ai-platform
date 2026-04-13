@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -45,9 +46,17 @@ func main() {
 		mgrOpts.LeaderElectionNamespace = cfg.Namespace
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOpts)
+	restCfg := ctrl.GetConfigOrDie()
+
+	mgr, err := ctrl.NewManager(restCfg, mgrOpts)
 	if err != nil {
 		slog.Error("unable to start manager", "error", err)
+		os.Exit(1)
+	}
+
+	kubeClient, err := kubernetes.NewForConfig(restCfg)
+	if err != nil {
+		slog.Error("create kube client", "error", err)
 		os.Exit(1)
 	}
 
@@ -61,6 +70,7 @@ func main() {
 	// RayJob reconciler (event-driven via controller-runtime watch).
 	rjr := &reconciler.RayJobReconciler{
 		Client:          mgr.GetClient(),
+		KubeClient:      kubeClient,
 		ControlPlaneURL: controlPlaneURL,
 		HTTPClient:      httpClient,
 	}
