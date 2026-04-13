@@ -2,16 +2,21 @@
 package reconciler
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -22,7 +27,8 @@ import (
 // control plane via the internal status API.
 type RayJobReconciler struct {
 	client.Client
-	ControlPlaneURL string // base URL of the control plane internal port, e.g. "http://control-plane:8081"
+	KubeClient      *kubernetes.Clientset // used to read Ray head pod logs
+	ControlPlaneURL string                // base URL of the control plane internal port, e.g. "http://control-plane:8081"
 	HTTPClient      *http.Client
 }
 
@@ -65,7 +71,12 @@ func (r *RayJobReconciler) reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 	}
 
-	if err := r.reportStatus(ctx, jobID, platformStatus, failureReason); err != nil {
+	var mlflowRunID string
+	if platformStatus == "SUCCEEDED" {
+		mlflowRunID = r.extractMLflowRunID(ctx, obj)
+	}
+
+	if err := r.reportStatus(ctx, jobID, platformStatus, failureReason, mlflowRunID); err != nil {
 		slog.Error("reconciler: report status", "job_id", jobID, "status", platformStatus, "error", err)
 		return ctrl.Result{}, err
 	}
@@ -90,12 +101,15 @@ func MapRayJobStatus(rayStatus string) (string, bool) {
 	}
 }
 
-func (r *RayJobReconciler) reportStatus(ctx context.Context, jobID, status string, failureReason *string) error {
+func (r *RayJobReconciler) reportStatus(ctx context.Context, jobID, status string, failureReason *string, mlflowRunID string) error {
 	payload := map[string]interface{}{
 		"status": status,
 	}
 	if failureReason != nil {
 		payload["failure_reason"] = *failureReason
+	}
+	if mlflowRunID != "" {
+		payload["mlflow_run_id"] = mlflowRunID
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -123,6 +137,61 @@ func (r *RayJobReconciler) reportStatus(ctx context.Context, jobID, status strin
 		return fmt.Errorf("unexpected status %d from internal API", resp.StatusCode)
 	}
 	return nil
+}
+
+// ParseMLflowRunID scans log text for a line matching "MLFLOW_RUN_ID=<value>"
+// and returns the value. Returns "" if not found.
+// Exported so that the external test package can call it directly.
+func ParseMLflowRunID(logs string) string {
+	scanner := bufio.NewScanner(strings.NewReader(logs))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "MLFLOW_RUN_ID=") {
+			return strings.TrimPrefix(line, "MLFLOW_RUN_ID=")
+		}
+	}
+	return ""
+}
+
+// extractMLflowRunID reads the Ray head pod logs for the given RayJob and
+// returns the mlflow_run_id printed by the training script.
+// Returns "" if the log cannot be read or the marker line is absent.
+func (r *RayJobReconciler) extractMLflowRunID(ctx context.Context, obj *unstructured.Unstructured) string {
+	if r.KubeClient == nil {
+		return ""
+	}
+	clusterName, found, _ := unstructured.NestedString(obj.Object, "status", "rayClusterName")
+	if !found || clusterName == "" {
+		return ""
+	}
+	namespace := obj.GetNamespace()
+
+	pods, err := r.KubeClient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "ray.io/cluster=" + clusterName + ",ray.io/node-type=head",
+	})
+	if err != nil || len(pods.Items) == 0 {
+		return ""
+	}
+
+	req := r.KubeClient.CoreV1().Pods(namespace).GetLogs(pods.Items[0].Name, &corev1.PodLogOptions{})
+	stream, err := req.Stream(ctx)
+	if err != nil {
+		return ""
+	}
+	defer stream.Close()
+
+	var sb strings.Builder
+	buf := make([]byte, 4096)
+	for {
+		n, readErr := stream.Read(buf)
+		if n > 0 {
+			sb.Write(buf[:n])
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	return ParseMLflowRunID(sb.String())
 }
 
 func rayJobGVK() schema.GroupVersionKind {
