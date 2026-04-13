@@ -117,3 +117,18 @@ func TestRayJobReconciler_BadImage_PropagatesFailureReason(t *testing.T) {
 		t.Errorf("expected failure_reason to mention 'ImagePullBackOff', got %q", reason)
 	}
 }
+
+func TestExtractMLflowRunIDFromLogs(t *testing.T) {
+	logs := "epoch 1 loss=0.5\nMLFLOW_RUN_ID=abc123\nepoch 2 loss=0.4\n"
+	got := reconciler.ParseMLflowRunID(logs)
+	if got != "abc123" {
+		t.Fatalf("expected abc123, got %q", got)
+	}
+}
+
+func TestExtractMLflowRunIDFromLogs_NotFound(t *testing.T) {
+	got := reconciler.ParseMLflowRunID("no run id here\n")
+	if got != "" {
+		t.Fatalf("expected empty, got %q", got)
+	}
+}
