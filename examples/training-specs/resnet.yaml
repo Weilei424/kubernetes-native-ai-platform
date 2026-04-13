@@ -2,10 +2,17 @@
 # Training job spec for the platform demo (DEMO_MODE=fast uses minimal-trainer image).
 # Adjust image tag to platform/resnet50-exporter:latest for DEMO_MODE=full.
 #
+# IMPORTANT: project_id must be a UUID, not a name.
+# The demo script patches this field automatically from $PROJECT_ID.
+# To get your project UUID after seeding:
+#   export PROJECT_ID=$(kubectl exec -n aiplatform deploy/postgres -- \
+#     psql -U aiplatform aiplatform -t -A \
+#     -c "SELECT id FROM projects WHERE name='vision-demo' LIMIT 1")
+#
 # Submit with:
 #   platformctl train submit -f examples/training-specs/resnet.yaml
 name: resnet50-train-v1
-project_id: vision-demo
+project_id: REPLACE_WITH_PROJECT_UUID
 
 runtime:
   image: platform/minimal-trainer:latest
